@@ -104,28 +104,79 @@
 - [x] Implement `ContextWindow.swift` (`ContextChunk`, `CompressionLevel`, `FormatStyle`, `ContextWindow`)
 - [x] Verify formatting rules for `.raw`, `.chatML`, `.alpaca`, `.custom`
 - [x] Run `swift test` and confirm 3.1 tests are green
-- [ ] Commit: `feat(phase3): 3.1 — ContextWindow and ContextChunk types with formatting`
+- [x] Commit: `feat(phase3): 3.1 — ContextWindow and ContextChunk types with formatting`
 
 ## 3.2 WindowPacker
 - [x] **TEST FIRST**: Add budget/compression/ordering tests in `WindowPackerTests.swift`
 - [x] Implement `WindowPacker.swift` actor with guaranteed system/recent inclusion
 - [x] Implement compression fallback via `CompressionEngine.rankSentences`
 - [x] Run `swift test` and confirm 3.2 tests are green
-- [ ] Commit: `feat(phase3): 3.2 — WindowPacker with budget accounting and compression fallback`
+- [x] Commit: `feat(phase3): 3.2 — WindowPacker with budget accounting and compression fallback`
 
 ## 3.3 ChunkOrderer
 - [x] **TEST FIRST**: Add ordering strategy tests in `ChunkOrdererTests.swift`
 - [x] Implement `ChunkOrderer.swift` with `.typeGrouped`, `.relevanceAscending`, `.chronological`
 - [x] Verify system prompt pinning and guaranteed recent separation
 - [x] Run `swift test` and confirm 3.3 tests are green
-- [ ] Commit: `feat(phase3): 3.3 — ChunkOrderer with three ordering strategies`
+- [x] Commit: `feat(phase3): 3.3 — ChunkOrderer with three ordering strategies`
 
 ## Final Verification
-- [ ] `swift build` passes with zero errors/warnings
-- [ ] `swift test` passes for all suites (Phase 1 + 2 + 3)
-- [ ] Verify 3 clean Phase 3 commits in git log
+- [x] `swift build` passes with zero errors/warnings
+- [x] `swift test` passes for all suites (Phase 1 + 2 + 3)
+- [x] Verify 3 clean Phase 3 commits in git log
 
 ## Review
-- [ ] Summary of implementation results
-- [ ] Total test count and pass/fail
-- [ ] Residual risks / follow-ups
+- [x] Summary of implementation results
+- [x] Total test count and pass/fail
+- [x] Residual risks / follow-ups
+- Result: Added `ContextWindow`, `WindowPacker`, and `ChunkOrderer` with full Phase 3 behavior and strategy coverage.
+- Test count: `91` tests across `10` suites, all passing.
+- Residual risk: Compression fallback is extractive and importance-order greedy; semantic coherence improvements are deferred to later phases.
+
+# Performance Optimization Pass — Task List
+
+## Goals
+- [x] Preserve public API and existing behavior while improving runtime performance in the scoring path
+- [ ] Keep `buildWindow` and `consolidate` latency at or better than current baseline
+- [x] Make GPU vs CPU scoring benchmarks fair, reproducible, and actionable
+- [x] Produce updated measured results in `BENCHMARKS.md` and a concise `PERF_NOTES.md`
+
+## Investigation
+- [x] Confirm current scoring hot spots in `ScoringEngine` and benchmark fairness gaps
+- [x] Record bottlenecks and intended fixes before implementation
+
+## Guardrails
+- [x] **TEST FIRST**: Add/adjust tests to protect scoring parity and benchmark/reporting behavior
+- [x] Verify GPU and CPU scoring parity remains within existing tolerances
+- [x] Verify benchmark output can report latency and throughput for the new scoring matrix
+
+## ScoringEngine
+- [x] Reduce per-call CPU allocations in `scoreChunks`
+- [x] Reuse Metal buffers across iterations where practical without changing public API
+- [x] Remove unnecessary transient arrays and constant-buffer allocations in scoring and recency paths
+- [x] Reduce redundant CPU-side work on the benchmarked GPU path
+- [x] Keep `topKIndices` behavior intact while avoiding obviously inefficient execution for current workloads
+
+## Benchmarks
+- [x] Split scoring benchmarks into `math-only` and `end-to-end` tracks
+- [x] Ensure CPU comparisons include equivalent work for each track
+- [x] Add throughput metrics alongside latency metrics
+- [x] Expand workload sizes so GPU scaling is visible beyond launch-overhead-dominated cases
+- [x] Reduce formatting ambiguity for sub-millisecond results
+
+## Validation
+- [x] Run `swift build`
+- [x] Run `swift test`
+- [x] Run `swift build -c release`
+- [x] Run `swift run -c release ContextCoreBenchmarks`
+- [ ] Compare new `buildWindow` and `consolidate` measurements against baseline and confirm no regression
+
+## Review
+- [x] Summarize bottlenecks found
+- [x] Summarize implementation changes
+- [x] Record before/after benchmark metrics
+- [x] Record remaining limits and follow-up opportunities
+- Result: Scoring internals now reuse Metal buffers, skip the redundant retrieval sort in `AgentContext`, and expose fair benchmark tracks for raw math vs public pipeline work.
+- Validation: `swift build`, `swift test`, `swift build -c release`, and two `swift run -c release ContextCoreBenchmarks` full passes completed successfully.
+- Benchmark note: GPU scaling is now visible through `n=50_000`, where end-to-end scoring reaches `1.02x` vs CPU on this machine.
+- Residual risk: Historical `buildWindow`/`consolidate` latency baselines did not reproduce on repeated full runs, so the non-scoring no-regression criterion remains open.
