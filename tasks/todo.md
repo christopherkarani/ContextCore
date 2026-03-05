@@ -114,10 +114,10 @@
 - [ ] Commit: `feat(phase3): 3.2 — WindowPacker with budget accounting and compression fallback`
 
 ## 3.3 ChunkOrderer
-- [ ] **TEST FIRST**: Add ordering strategy tests in `ChunkOrdererTests.swift`
-- [ ] Implement `ChunkOrderer.swift` with `.typeGrouped`, `.relevanceAscending`, `.chronological`
-- [ ] Verify system prompt pinning and guaranteed recent separation
-- [ ] Run `swift test` and confirm 3.3 tests are green
+- [x] **TEST FIRST**: Add ordering strategy tests in `ChunkOrdererTests.swift`
+- [x] Implement `ChunkOrderer.swift` with `.typeGrouped`, `.relevanceAscending`, `.chronological`
+- [x] Verify system prompt pinning and guaranteed recent separation
+- [x] Run `swift test` and confirm 3.3 tests are green
 - [ ] Commit: `feat(phase3): 3.3 — ChunkOrderer with three ordering strategies`
 
 ## Final Verification
