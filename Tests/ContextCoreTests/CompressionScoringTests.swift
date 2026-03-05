@@ -9,7 +9,10 @@ struct CompressionScoringTests {
     @Test("Off-topic sentence ranks last")
     func offTopicSentenceRanksLast() async throws {
         let provider = SemanticMockEmbeddingProvider()
-        let engine = try CompressionEngine(embeddingProvider: provider)
+        let engine = try CompressionEngine(
+            embeddingProvider: provider,
+            tokenCounter: ApproximateTokenCounter()
+        )
 
         let chunk = "Swift is a compiled language. It uses LLVM for optimization. It supports generics and protocols. The weather is nice today. Swift was created by Apple."
         let sentences = splitSentences(chunk)
@@ -23,7 +26,10 @@ struct CompressionScoringTests {
     @Test("Representative sentence ranks first")
     func representativeSentenceRanksFirst() async throws {
         let provider = SemanticMockEmbeddingProvider()
-        let engine = try CompressionEngine(embeddingProvider: provider)
+        let engine = try CompressionEngine(
+            embeddingProvider: provider,
+            tokenCounter: ApproximateTokenCounter()
+        )
 
         let summary = "ARC determines when objects should be deallocated."
         let chunk = [
@@ -42,7 +48,10 @@ struct CompressionScoringTests {
     @Test("Equal sentences produce equal importance")
     func equalSentencesEqualImportance() async throws {
         let provider = SemanticMockEmbeddingProvider()
-        let engine = try CompressionEngine(embeddingProvider: provider)
+        let engine = try CompressionEngine(
+            embeddingProvider: provider,
+            tokenCounter: ApproximateTokenCounter()
+        )
 
         let sentence = "Swift uses value semantics in structs."
         let chunk = "\(sentence) \(sentence) \(sentence)"
@@ -59,7 +68,10 @@ struct CompressionScoringTests {
     @Test("Sentence splitting detects three sentences")
     func sentenceSplitting() async throws {
         let provider = SemanticMockEmbeddingProvider()
-        let engine = try CompressionEngine(embeddingProvider: provider)
+        let engine = try CompressionEngine(
+            embeddingProvider: provider,
+            tokenCounter: ApproximateTokenCounter()
+        )
 
         let chunk = "First sentence. Second sentence. Third!"
         let embedding = try await provider.embed("First sentence.")
@@ -71,7 +83,10 @@ struct CompressionScoringTests {
     @Test("GPU vs CPU parity for sentence importance")
     func gpuVsCpuParity() async throws {
         let provider = SemanticMockEmbeddingProvider()
-        let engine = try CompressionEngine(embeddingProvider: provider)
+        let engine = try CompressionEngine(
+            embeddingProvider: provider,
+            tokenCounter: ApproximateTokenCounter()
+        )
 
         let sentences = [
             "Swift actors isolate mutable state.",
@@ -108,7 +123,10 @@ struct CompressionScoringTests {
     @Test("Single sentence has importance 1.0")
     func singleSentence() async throws {
         let provider = SemanticMockEmbeddingProvider()
-        let engine = try CompressionEngine(embeddingProvider: provider)
+        let engine = try CompressionEngine(
+            embeddingProvider: provider,
+            tokenCounter: ApproximateTokenCounter()
+        )
 
         let sentence = "Swift is designed for safety and speed."
         let chunkEmbedding = try await provider.embed(sentence)

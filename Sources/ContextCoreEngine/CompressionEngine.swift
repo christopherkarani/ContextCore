@@ -8,14 +8,20 @@ public actor CompressionEngine {
     private let commandQueue: MTLCommandQueue
     private let sentenceImportancePipeline: MTLComputePipelineState
     private let embeddingProvider: any EmbeddingProvider
+    private let tokenCounter: any TokenCounter
+    private var compressionDelegate: (any CompressionDelegate)?
 
     public init(
         device: MTLDevice? = nil,
-        embeddingProvider: any EmbeddingProvider
+        embeddingProvider: any EmbeddingProvider,
+        tokenCounter: any TokenCounter,
+        compressionDelegate: (any CompressionDelegate)? = nil
     ) throws {
         self.device = try device ?? MetalContext.device()
         self.commandQueue = try MetalContext.commandQueue(device: self.device)
         self.embeddingProvider = embeddingProvider
+        self.tokenCounter = tokenCounter
+        self.compressionDelegate = compressionDelegate
 
         let library = try MetalContext.library(device: self.device)
         guard let function = library.makeFunction(name: "sentence_importance") else {
@@ -89,8 +95,72 @@ public actor CompressionEngine {
             .sorted(by: { $0.importance > $1.importance })
     }
 
+    public func compress(
+        chunk: MemoryChunk,
+        targetTokens: Int
+    ) async throws -> MemoryChunk {
+        let currentTokens = tokenCounter.count(chunk.content)
+        if currentTokens <= targetTokens {
+            return chunk
+        }
+
+        let delegate = compressionDelegate ?? makeDefaultExtractiveDelegate()
+        let compressedContent = try await delegate.compress(chunk.content, targetTokens: targetTokens)
+        let compressedTokens = tokenCounter.count(compressedContent)
+        let ratio = Float(currentTokens) / Float(max(compressedTokens, 1))
+
+        var compressed = chunk
+        compressed.content = compressedContent
+        compressed.embedding = try await embeddingProvider.embed(compressedContent)
+        compressed.metadata["compressionRatio"] = String(format: "%.2f", ratio)
+        compressed.metadata["originalTokenCount"] = "\(currentTokens)"
+
+        return compressed
+    }
+
+    public func compressTurn(
+        turn: Turn,
+        targetTokens: Int
+    ) async throws -> Turn {
+        let currentTokens = tokenCounter.count(turn.content)
+        if currentTokens <= targetTokens {
+            return turn
+        }
+
+        let delegate = compressionDelegate ?? makeDefaultExtractiveDelegate()
+        let compressedContent = try await delegate.compress(turn.content, targetTokens: targetTokens)
+        let compressedTokens = tokenCounter.count(compressedContent)
+        let ratio = Float(currentTokens) / Float(max(compressedTokens, 1))
+        let compressedEmbedding = try await embeddingProvider.embed(compressedContent)
+
+        var metadata = turn.metadata
+        metadata["compressionRatio"] = String(format: "%.2f", ratio)
+        metadata["originalTokenCount"] = "\(currentTokens)"
+
+        return Turn(
+            id: turn.id,
+            role: turn.role,
+            content: compressedContent,
+            timestamp: turn.timestamp,
+            tokenCount: compressedTokens,
+            embedding: compressedEmbedding,
+            metadata: metadata
+        )
+    }
+
+    public func setCompressionDelegate(_ delegate: any CompressionDelegate) {
+        compressionDelegate = delegate
+    }
+
     func embedForCompression(_ text: String) async throws -> [Float] {
         try await embeddingProvider.embed(text)
+    }
+
+    private func makeDefaultExtractiveDelegate() -> ExtractiveFallbackDelegate {
+        ExtractiveFallbackDelegate(
+            compressionEngine: self,
+            tokenCounter: tokenCounter
+        )
     }
 
     private func splitSentences(from text: String) -> [String] {
