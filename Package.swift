@@ -15,7 +15,8 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(url: "https://github.com/christopherkarani/MetalANNS.git", branch: "main"),
+        .package(url: "https://github.com/christopherkarani/MetalANNS.git", from: "0.1.2"),
+        .package(url: "https://github.com/swiftlang/swift-docc-plugin", from: "1.4.0"),
     ],
     targets: [
         .target(
@@ -58,6 +59,14 @@ let package = Package(
                 .linkedFramework("CoreML"),
                 .linkedFramework("Accelerate"),
             ]
+        ),
+        .executableTarget(
+            name: "ContextCoreBenchmarks",
+            dependencies: [
+                "ContextCore",
+                "ContextCoreEngine",
+            ],
+            path: "Sources/ContextCoreBenchmarks"
         ),
         .testTarget(
             name: "ContextCoreTests",
