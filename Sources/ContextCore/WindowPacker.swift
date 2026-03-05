@@ -14,6 +14,7 @@ public actor WindowPacker {
     private let tokenCounter: any TokenCounter
     private let minimumChunkSize: Int
     private let recentTurnsGuaranteed: Int
+    private let progressiveCompressor: ProgressiveCompressor?
 
     public init(
         compressionEngine: CompressionEngine,
@@ -25,18 +26,24 @@ public actor WindowPacker {
         self.tokenCounter = tokenCounter
         self.minimumChunkSize = max(0, minimumChunkSize)
         self.recentTurnsGuaranteed = max(0, recentTurnsGuaranteed)
+        self.progressiveCompressor = ProgressiveCompressor(
+            compressionEngine: compressionEngine,
+            tokenCounter: tokenCounter
+        )
     }
 
     init(
         sentenceRanker: any SentenceRanker,
         tokenCounter: any TokenCounter,
         minimumChunkSize: Int = 50,
-        recentTurnsGuaranteed: Int = 3
+        recentTurnsGuaranteed: Int = 3,
+        progressiveCompressor: ProgressiveCompressor? = nil
     ) {
         self.sentenceRanker = sentenceRanker
         self.tokenCounter = tokenCounter
         self.minimumChunkSize = max(0, minimumChunkSize)
         self.recentTurnsGuaranteed = max(0, recentTurnsGuaranteed)
+        self.progressiveCompressor = progressiveCompressor
     }
 
     public func pack(
@@ -71,19 +78,56 @@ public actor WindowPacker {
             return lhs.score > rhs.score
         }
 
-        for candidate in sortedMemory {
+        var index = 0
+        while index < sortedMemory.count {
             if remainingTokens < minimumChunkSize {
                 break
             }
 
+            let candidate = sortedMemory[index]
             let fullChunk = makeChunk(from: candidate.chunk, score: candidate.score)
             if fullChunk.tokenCount <= remainingTokens {
                 packedChunks.append(fullChunk)
                 remainingTokens -= fullChunk.tokenCount
+                index += 1
                 continue
             }
 
-            if let compressedChunk = try await attemptCompression(
+            if let progressiveCompressor {
+                let tail = Array(sortedMemory[index...])
+                let tailTotalTokens = tail.reduce(into: 0) { partial, value in
+                    partial += tokenCounter.count(value.chunk.content)
+                }
+                let deficit = max(0, tailTotalTokens - remainingTokens)
+
+                let ascendingCandidates = tail.sorted(by: ascendingScoreOrder)
+                let progressiveResults = try await progressiveCompressor.compress(
+                    candidates: ascendingCandidates.map { (chunk: $0.chunk, evictionScore: $0.score) },
+                    tokenDeficit: deficit
+                )
+                let resultByID = Dictionary(
+                    uniqueKeysWithValues: progressiveResults.map { ($0.originalChunk.id, $0) }
+                )
+
+                for memoryCandidate in tail {
+                    guard let result = resultByID[memoryCandidate.chunk.id] else {
+                        continue
+                    }
+                    guard let contextChunk = result.toContextChunk(
+                        score: memoryCandidate.score,
+                        source: memoryCandidate.chunk.type
+                    ) else {
+                        continue
+                    }
+                    guard contextChunk.tokenCount <= remainingTokens else {
+                        break
+                    }
+
+                    packedChunks.append(contextChunk)
+                    remainingTokens -= contextChunk.tokenCount
+                }
+                break
+            } else if let compressedChunk = try await attemptCompression(
                 from: candidate.chunk,
                 score: candidate.score,
                 targetTokens: remainingTokens
@@ -91,9 +135,24 @@ public actor WindowPacker {
                 packedChunks.append(compressedChunk)
                 remainingTokens -= compressedChunk.tokenCount
             }
+
+            index += 1
         }
 
         return ContextWindow(chunks: packedChunks, budget: budget)
+    }
+
+    private func ascendingScoreOrder(
+        _ lhs: (chunk: MemoryChunk, score: Float),
+        _ rhs: (chunk: MemoryChunk, score: Float)
+    ) -> Bool {
+        if lhs.score == rhs.score {
+            if lhs.chunk.createdAt == rhs.chunk.createdAt {
+                return lhs.chunk.id.uuidString < rhs.chunk.id.uuidString
+            }
+            return lhs.chunk.createdAt < rhs.chunk.createdAt
+        }
+        return lhs.score < rhs.score
     }
 
     private func makeSystemPromptChunk(from prompt: String) -> ContextChunk {
