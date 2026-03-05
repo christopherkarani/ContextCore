@@ -2,12 +2,32 @@ import ContextCoreTypes
 import Foundation
 import Metal
 
+public struct ConsolidationResult: Sendable, Equatable {
+    public let duplicatePairsFound: Int
+    public let factsPromoted: Int
+    public let chunksEvicted: Int
+    public let durationMs: Double
+
+    public init(
+        duplicatePairsFound: Int,
+        factsPromoted: Int,
+        chunksEvicted: Int,
+        durationMs: Double
+    ) {
+        self.duplicatePairsFound = duplicatePairsFound
+        self.factsPromoted = factsPromoted
+        self.chunksEvicted = chunksEvicted
+        self.durationMs = durationMs
+    }
+}
+
 public actor ConsolidationEngine {
     private let device: MTLDevice
     private let commandQueue: MTLCommandQueue
     private let pairwisePipeline: MTLComputePipelineState
     private let pairwiseTiledPipeline: MTLComputePipelineState
     private let mergeCandidatePipeline: MTLComputePipelineState
+    private let antipodalPipeline: MTLComputePipelineState
     private let embeddingProvider: any EmbeddingProvider
 
     public init(
@@ -29,17 +49,31 @@ public actor ConsolidationEngine {
         guard let mergeFunction = library.makeFunction(name: "find_merge_candidates") else {
             throw ContextCoreError.compressionFailed("Missing find_merge_candidates function")
         }
+        guard let antipodalFunction = library.makeFunction(name: "antipodal_test") else {
+            throw ContextCoreError.compressionFailed("Missing antipodal_test function")
+        }
 
         self.pairwisePipeline = try self.device.makeComputePipelineState(function: pairwiseFunction)
         self.pairwiseTiledPipeline = try self.device.makeComputePipelineState(function: pairwiseTiledFunction)
         self.mergeCandidatePipeline = try self.device.makeComputePipelineState(function: mergeFunction)
+        self.antipodalPipeline = try self.device.makeComputePipelineState(function: antipodalFunction)
     }
 
     public func findDuplicates(
         in store: any ConsolidationEpisodicStore,
         threshold: Float = 0.92
     ) async throws -> [(UUID, UUID)] {
-        let chunks = await store.allChunks()
+        let allChunks = await store.allChunks()
+        var chunks: [MemoryChunk] = []
+        chunks.reserveCapacity(allChunks.count)
+
+        for chunk in allChunks {
+            if await store.isConsolidated(id: chunk.id) {
+                continue
+            }
+            chunks.append(chunk)
+        }
+
         guard chunks.count > 1 else {
             return []
         }
@@ -133,6 +167,146 @@ public actor ConsolidationEngine {
         }
 
         return matrix
+    }
+
+    public func consolidate(
+        session _: UUID,
+        episodicStore: any ConsolidationEpisodicStore,
+        semanticStore: any ConsolidationSemanticStore,
+        threshold: Float = 0.92
+    ) async throws -> ConsolidationResult {
+        let start = Date()
+        let pairs = try await findDuplicates(in: episodicStore, threshold: threshold)
+
+        let allChunks = await episodicStore.allChunks()
+        let chunkMap = Dictionary(uniqueKeysWithValues: allChunks.map { ($0.id, $0) })
+
+        var promotedIDs = Set<UUID>()
+        var processedChunkIDs = Set<UUID>()
+
+        for (idA, idB) in pairs {
+            guard let chunkA = chunkMap[idA], let chunkB = chunkMap[idB] else {
+                continue
+            }
+            guard !processedChunkIDs.contains(chunkA.id), !processedChunkIDs.contains(chunkB.id) else {
+                continue
+            }
+            guard await !episodicStore.isConsolidated(id: chunkA.id),
+                  await !episodicStore.isConsolidated(id: chunkB.id)
+            else {
+                continue
+            }
+
+            processedChunkIDs.insert(chunkA.id)
+            processedChunkIDs.insert(chunkB.id)
+
+            let factChunk = chunkA.content.count <= chunkB.content.count ? chunkA : chunkB
+            if !promotedIDs.contains(factChunk.id) {
+                try await semanticStore.upsert(fact: factChunk.content, embedding: factChunk.embedding)
+                promotedIDs.insert(factChunk.id)
+            }
+
+            try await episodicStore.updateRetentionScore(id: chunkA.id, delta: -0.2)
+            try await episodicStore.updateRetentionScore(id: chunkB.id, delta: -0.2)
+            try await episodicStore.markConsolidated(id: chunkA.id)
+            try await episodicStore.markConsolidated(id: chunkB.id)
+        }
+
+        var evicted = 0
+        for chunk in await episodicStore.allChunks() where chunk.retentionScore < 0.1 {
+            try await episodicStore.evict(id: chunk.id)
+            evicted += 1
+        }
+
+        let durationMs = Date().timeIntervalSince(start) * 1000
+        return ConsolidationResult(
+            duplicatePairsFound: pairs.count,
+            factsPromoted: promotedIDs.count,
+            chunksEvicted: evicted,
+            durationMs: durationMs
+        )
+    }
+
+    public func contradictionCandidates(
+        in store: any ConsolidationSemanticStore,
+        similarityThreshold: Float = 0.75,
+        antipodalThreshold: Float = 0.30
+    ) async throws -> [(MemoryChunk, MemoryChunk)] {
+        let facts = await store.allChunks()
+        guard facts.count > 1 else {
+            return []
+        }
+
+        let embeddings = facts.map(\.embedding)
+        let similarities = try await pairwiseSimilarity(embeddings: embeddings)
+
+        var candidateIndices: [(Int, Int)] = []
+        for i in 0..<facts.count {
+            for j in (i + 1)..<facts.count where similarities[i][j] > similarityThreshold {
+                candidateIndices.append((i, j))
+            }
+        }
+
+        guard !candidateIndices.isEmpty else {
+            return []
+        }
+
+        let dim = embeddings[0].count
+        var embeddingsA: [Float] = []
+        var embeddingsB: [Float] = []
+        embeddingsA.reserveCapacity(candidateIndices.count * dim)
+        embeddingsB.reserveCapacity(candidateIndices.count * dim)
+
+        for (i, j) in candidateIndices {
+            embeddingsA.append(contentsOf: embeddings[i])
+            embeddingsB.append(contentsOf: embeddings[j])
+        }
+
+        let fractions = try await runAntipodalFractions(
+            embeddingsA: embeddingsA,
+            embeddingsB: embeddingsB,
+            dim: dim,
+            pairCount: candidateIndices.count
+        )
+
+        var matches: [(MemoryChunk, MemoryChunk)] = []
+        for idx in candidateIndices.indices where fractions[idx] > antipodalThreshold {
+            let (i, j) = candidateIndices[idx]
+            matches.append((facts[i], facts[j]))
+        }
+
+        return matches
+    }
+
+    public func antipodalFractions(
+        embeddingsA: [[Float]],
+        embeddingsB: [[Float]]
+    ) async throws -> [Float] {
+        guard embeddingsA.count == embeddingsB.count else {
+            throw ContextCoreError.dimensionMismatch(expected: embeddingsA.count, got: embeddingsB.count)
+        }
+        guard !embeddingsA.isEmpty else {
+            return []
+        }
+
+        let dim = embeddingsA[0].count
+        guard embeddingsA.allSatisfy({ $0.count == dim }), embeddingsB.allSatisfy({ $0.count == dim }) else {
+            throw ContextCoreError.dimensionMismatch(
+                expected: dim,
+                got: embeddingsA.first(where: { $0.count != dim })?.count
+                    ?? embeddingsB.first(where: { $0.count != dim })?.count
+                    ?? 0
+            )
+        }
+
+        let flatA = embeddingsA.flatMap { $0 }
+        let flatB = embeddingsB.flatMap { $0 }
+        return try await runAntipodalFractions(
+            embeddingsA: flatA,
+            embeddingsB: flatB,
+            dim: dim,
+            pairCount: embeddingsA.count
+        )
     }
 
     private func validateDimensions(_ chunks: [MemoryChunk]) throws -> Int {
@@ -374,6 +548,51 @@ public actor ConsolidationEngine {
         return output
     }
 
+    private func runAntipodalFractions(
+        embeddingsA: [Float],
+        embeddingsB: [Float],
+        dim: Int,
+        pairCount: Int
+    ) async throws -> [Float] {
+        var output = [Float](repeating: 0, count: pairCount)
+
+        guard let embeddingsABuffer = device.makeBuffer(from: embeddingsA),
+              let embeddingsBBuffer = device.makeBuffer(from: embeddingsB),
+              let outputBuffer = device.makeBuffer(from: output),
+              let commandBuffer = commandQueue.makeCommandBuffer(),
+              let encoder = commandBuffer.makeComputeCommandEncoder()
+        else {
+            throw ContextCoreError.compressionFailed("Failed to allocate antipodal buffers")
+        }
+
+        var dim32 = UInt32(dim)
+        var pairCount32 = UInt32(pairCount)
+
+        guard let dimBuffer = device.makeBuffer(bytes: &dim32, length: MemoryLayout<UInt32>.stride, options: .storageModeShared),
+              let pairCountBuffer = device.makeBuffer(bytes: &pairCount32, length: MemoryLayout<UInt32>.stride, options: .storageModeShared)
+        else {
+            throw ContextCoreError.compressionFailed("Failed to allocate antipodal constants")
+        }
+
+        encoder.setComputePipelineState(antipodalPipeline)
+        encoder.setBuffer(embeddingsABuffer, offset: 0, index: 0)
+        encoder.setBuffer(embeddingsBBuffer, offset: 0, index: 1)
+        encoder.setBuffer(outputBuffer, offset: 0, index: 2)
+        encoder.setBuffer(dimBuffer, offset: 0, index: 3)
+        encoder.setBuffer(pairCountBuffer, offset: 0, index: 4)
+
+        let threads = MetalContext.threadsPerThreadgroup(pipeline: antipodalPipeline, count: pairCount)
+        let groups = MetalContext.threadgroups(threadsPerThreadgroup: threads, count: pairCount)
+        encoder.dispatchThreadgroups(groups, threadsPerThreadgroup: threads)
+        encoder.endEncoding()
+
+        try await awaitCompletion(commandBuffer)
+
+        let pointer = outputBuffer.contents().bindMemory(to: Float.self, capacity: pairCount)
+        output = Array(UnsafeBufferPointer(start: pointer, count: pairCount))
+        return output
+    }
+
     private func dispatch2D(
         encoder: MTLComputeCommandEncoder,
         width: Int,
@@ -409,5 +628,87 @@ public actor ConsolidationEngine {
             }
             commandBuffer.commit()
         }
+    }
+}
+
+public actor ConsolidationScheduler {
+    private let engine: ConsolidationEngine
+    private let countThreshold: Int
+    private let insertionThreshold: Int
+    private let similarityThreshold: Float
+
+    private var insertionsSinceLastConsolidation = 0
+    private var isConsolidating = false
+    private var triggerCountValue = 0
+    private var lastResultValue: ConsolidationResult?
+
+    public init(
+        engine: ConsolidationEngine,
+        countThreshold: Int = 200,
+        insertionThreshold: Int = 50,
+        similarityThreshold: Float = 0.92
+    ) {
+        self.engine = engine
+        self.countThreshold = countThreshold
+        self.insertionThreshold = insertionThreshold
+        self.similarityThreshold = similarityThreshold
+    }
+
+    public func notifyInsertion(
+        episodicCount: Int,
+        session: UUID,
+        episodicStore: any ConsolidationEpisodicStore,
+        semanticStore: any ConsolidationSemanticStore
+    ) async {
+        insertionsSinceLastConsolidation += 1
+
+        let shouldConsolidate = episodicCount > countThreshold || insertionsSinceLastConsolidation > insertionThreshold
+        guard shouldConsolidate, !isConsolidating else {
+            return
+        }
+
+        isConsolidating = true
+        triggerCountValue += 1
+
+        let engine = self.engine
+        let threshold = self.similarityThreshold
+
+        Task.detached(priority: .background) {
+            do {
+                let result = try await engine.consolidate(
+                    session: session,
+                    episodicStore: episodicStore,
+                    semanticStore: semanticStore,
+                    threshold: threshold
+                )
+                await self.finish(result: result)
+            } catch {
+                await self.finish(result: nil)
+            }
+        }
+    }
+
+    public func triggerCount() -> Int {
+        triggerCountValue
+    }
+
+    public func isRunning() -> Bool {
+        isConsolidating
+    }
+
+    public func lastResult() -> ConsolidationResult? {
+        lastResultValue
+    }
+
+    private func finish(result: ConsolidationResult?) {
+        if let result {
+            lastResultValue = result
+            resetCounter()
+        }
+        isConsolidating = false
+    }
+
+    private func resetCounter() {
+        insertionsSinceLastConsolidation = 0
     }
 }

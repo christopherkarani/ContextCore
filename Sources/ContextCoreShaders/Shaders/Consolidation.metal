@@ -112,3 +112,29 @@ kernel void pairwise_similarity_tiled(
 
     similarityTile[localI * colCount + localJ] = cosine;
 }
+
+kernel void antipodal_test(
+    device const float* embeddingsA         [[buffer(0)]],
+    device const float* embeddingsB         [[buffer(1)]],
+    device float* antipodalFraction         [[buffer(2)]],
+    constant uint& dim                      [[buffer(3)]],
+    constant uint& pairCount                [[buffer(4)]],
+    uint gid                                [[thread_position_in_grid]]
+) {
+    if (gid >= pairCount) {
+        return;
+    }
+
+    const uint base = gid * dim;
+    uint signDiffCount = 0;
+
+    for (uint d = 0; d < dim; ++d) {
+        const bool signA = embeddingsA[base + d] >= 0.0f;
+        const bool signB = embeddingsB[base + d] >= 0.0f;
+        if (signA != signB) {
+            signDiffCount += 1;
+        }
+    }
+
+    antipodalFraction[gid] = float(signDiffCount) / float(dim);
+}
