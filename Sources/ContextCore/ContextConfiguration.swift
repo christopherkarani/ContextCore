@@ -13,6 +13,7 @@ public struct ContextConfiguration: Sendable {
     public var efSearch: Int
     public var embeddingProvider: any EmbeddingProvider
     public var tokenCounter: any TokenCounter
+    public var compressionDelegate: (any CompressionDelegate)?
 
     public init(
         maxTokens: Int,
@@ -28,7 +29,8 @@ public struct ContextConfiguration: Sendable {
         centralityWeight: Float,
         efSearch: Int,
         embeddingProvider: any EmbeddingProvider,
-        tokenCounter: any TokenCounter
+        tokenCounter: any TokenCounter,
+        compressionDelegate: (any CompressionDelegate)? = nil
     ) {
         self.maxTokens = maxTokens
         self.tokenBudgetSafetyMargin = tokenBudgetSafetyMargin
@@ -44,6 +46,7 @@ public struct ContextConfiguration: Sendable {
         self.efSearch = efSearch
         self.embeddingProvider = embeddingProvider
         self.tokenCounter = tokenCounter
+        self.compressionDelegate = compressionDelegate
     }
 
     public static var `default`: ContextConfiguration {
@@ -64,7 +67,8 @@ public struct ContextConfiguration: Sendable {
                 base: CoreMLEmbeddingProvider(),
                 cache: EmbeddingCache(capacity: 512)
             ),
-            tokenCounter: ApproximateTokenCounter()
+            tokenCounter: ApproximateTokenCounter(),
+            compressionDelegate: nil
         )
     }
 }

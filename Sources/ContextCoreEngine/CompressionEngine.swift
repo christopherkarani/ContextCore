@@ -89,6 +89,10 @@ public actor CompressionEngine {
             .sorted(by: { $0.importance > $1.importance })
     }
 
+    func embedForCompression(_ text: String) async throws -> [Float] {
+        try await embeddingProvider.embed(text)
+    }
+
     private func splitSentences(from text: String) -> [String] {
         let tokenizer = NLTokenizer(unit: .sentence)
         tokenizer.string = text
