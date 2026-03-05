@@ -19,6 +19,10 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "ContextCoreTypes",
+            path: "Sources/ContextCoreTypes"
+        ),
+        .target(
             name: "ContextCoreShaders",
             path: "Sources/ContextCoreShaders",
             resources: [.process("Shaders")],
@@ -30,6 +34,7 @@ let package = Package(
             name: "ContextCoreEngine",
             dependencies: [
                 "ContextCoreShaders",
+                "ContextCoreTypes",
                 .product(name: "MetalANNS", package: "MetalANNS"),
             ],
             path: "Sources/ContextCoreEngine",
@@ -43,6 +48,7 @@ let package = Package(
             name: "ContextCore",
             dependencies: [
                 "ContextCoreEngine",
+                "ContextCoreTypes",
                 .product(name: "MetalANNS", package: "MetalANNS"),
             ],
             path: "Sources/ContextCore",
