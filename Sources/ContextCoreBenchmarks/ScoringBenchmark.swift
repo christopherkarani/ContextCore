@@ -39,6 +39,13 @@ func runScoringBenchmarks() async throws -> [ScoringCaseResult] {
         let fixture = makeScoringFixture(n: n, dimension: 384)
         let settings = scoringSettings(for: n)
         let scoringEngine = try ContextCoreEngine.ScoringEngine()
+        let prepared = try await scoringEngine.makePreparedScoringInputs(
+            query: fixture.query,
+            flattenedEmbeddings: fixture.flattenedVectors,
+            count: fixture.n,
+            dimension: fixture.dimension,
+            recencyWeights: fixture.recencyWeights
+        )
 
         let mathMeasurements = try await benchmarkPair(
             prefix: "scoreMath",
@@ -48,12 +55,8 @@ func runScoringBenchmarks() async throws -> [ScoringCaseResult] {
             iterations: settings.iterations,
             workUnitsPerIteration: Double(n)
         ) {
-            try await scoringEngine.scoreFlattenedEmbeddings(
-                query: fixture.query,
-                flattenedEmbeddings: fixture.flattenedVectors,
-                count: fixture.n,
-                dimension: fixture.dimension,
-                recencyWeights: fixture.recencyWeights,
+            try await scoringEngine.scorePreparedEmbeddings(
+                prepared,
                 relevanceWeight: 0.7,
                 recencyWeight: 0.3
             )

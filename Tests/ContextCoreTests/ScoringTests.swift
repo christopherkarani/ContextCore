@@ -194,6 +194,46 @@ struct ScoringTests {
         #expect(maxError < 1e-4)
     }
 
+    @Test("Prepared scoring matches flattened scoring")
+    func preparedScoringMatchesFlattenedScoring() async throws {
+        let dim = 384
+        let n = 96
+        let query = TestHelpers.randomVector(dim: dim, seed: 5301)
+        let embeddings = TestHelpers.randomVectors(n: n, dim: dim, seed: 5302)
+        let recency = (0..<n).map { index in Float(index) / Float(max(1, n - 1)) }
+        var flattened: [Float] = []
+        flattened.reserveCapacity(n * dim)
+        for embedding in embeddings {
+            flattened.append(contentsOf: embedding)
+        }
+
+        let engine = try ContextCoreEngine.ScoringEngine()
+        let prepared = try await engine.makePreparedScoringInputs(
+            query: query,
+            flattenedEmbeddings: flattened,
+            count: n,
+            dimension: dim,
+            recencyWeights: recency
+        )
+        let preparedScores = try await engine.scorePreparedEmbeddings(
+            prepared,
+            relevanceWeight: 0.7,
+            recencyWeight: 0.3
+        )
+        let flattenedScores = try await engine.scoreFlattenedEmbeddings(
+            query: query,
+            flattenedEmbeddings: flattened,
+            count: n,
+            dimension: dim,
+            recencyWeights: recency,
+            relevanceWeight: 0.7,
+            recencyWeight: 0.3
+        )
+
+        let maxError = TestHelpers.maxAbsError(preparedScores, flattenedScores)
+        #expect(maxError < 1e-4)
+    }
+
     @Test("Single chunk scoring")
     func singleChunk() async throws {
         let query = TestHelpers.randomVector(dim: 384, seed: 2001)

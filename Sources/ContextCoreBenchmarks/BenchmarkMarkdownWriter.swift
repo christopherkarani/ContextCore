@@ -75,7 +75,7 @@ func generateBenchmarksMarkdown(
     lines.append("")
     lines.append("## Metal vs CPU Scoring")
     lines.append("")
-    lines.append("Math-only isolates score computation over pre-flattened inputs. End-to-end includes public API validation, flattening, zip, and final sort.")
+    lines.append("Math-only isolates score computation over pre-flattened inputs with resident GPU buffers. End-to-end includes public API validation, flattening, zip, and final sort.")
     lines.append("")
     lines.append("### Math-only")
     lines.append("")
