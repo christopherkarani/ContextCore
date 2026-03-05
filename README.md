@@ -1,7 +1,7 @@
 # ContextCore 🧠
 
 <div align="center">
-  <img src="https://placehold.co/1200x300/000000/FFFFFF/png?text=Aura+%E2%9A%A1+ContextCore&font=montserrat" alt="ContextCore Banner" width="100%">
+  <img src="https://placehold.co/1200x300/000000/FFFFFF/png?text=%E2%9A%A1+ContextCore&font=montserrat" alt="ContextCore Banner" width="100%">
   <br>
   <h1><b>Aura ⚡️ ContextCore</b></h1>
   <h3><b>High-precision, low-latency memory scout for Apple Silicon.</b></h3>
