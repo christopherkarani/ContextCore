@@ -53,11 +53,7 @@ internal struct CoreMLEmbeddingProvider: EmbeddingProvider, Sendable {
         ]
 
         guard let modelURL = candidates.compactMap({ $0 }).first else {
-            throw NSError(
-                domain: "ContextCore.EmbeddingProvider",
-                code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "Missing minilm-l6-v2.mlpackage in bundle resources"]
-            )
+            throw ContextCoreError.embeddingFailed("Missing minilm-l6-v2.mlpackage in bundle resources")
         }
 
         return try MLModel(contentsOf: modelURL)
@@ -65,22 +61,14 @@ internal struct CoreMLEmbeddingProvider: EmbeddingProvider, Sendable {
 
     private static func resolveInputName(for model: MLModel) throws -> String {
         guard let inputName = model.modelDescription.inputDescriptionsByName.keys.first else {
-            throw NSError(
-                domain: "ContextCore.EmbeddingProvider",
-                code: 2,
-                userInfo: [NSLocalizedDescriptionKey: "Model input description is missing"]
-            )
+            throw ContextCoreError.embeddingFailed("Model input description is missing")
         }
         return inputName
     }
 
     private static func resolveOutputName(for model: MLModel) throws -> String {
         guard let outputName = model.modelDescription.outputDescriptionsByName.keys.first else {
-            throw NSError(
-                domain: "ContextCore.EmbeddingProvider",
-                code: 3,
-                userInfo: [NSLocalizedDescriptionKey: "Model output description is missing"]
-            )
+            throw ContextCoreError.embeddingFailed("Model output description is missing")
         }
         return outputName
     }
@@ -88,11 +76,7 @@ internal struct CoreMLEmbeddingProvider: EmbeddingProvider, Sendable {
     private static func extractEmbedding(from provider: MLFeatureProvider, model: MLModel) throws -> [Float] {
         let outputName = try resolveOutputName(for: model)
         guard let featureValue = provider.featureValue(for: outputName) else {
-            throw NSError(
-                domain: "ContextCore.EmbeddingProvider",
-                code: 4,
-                userInfo: [NSLocalizedDescriptionKey: "Prediction output is missing embedding feature"]
-            )
+            throw ContextCoreError.embeddingFailed("Prediction output is missing embedding feature")
         }
 
         if let multiArray = featureValue.multiArrayValue {
@@ -100,11 +84,7 @@ internal struct CoreMLEmbeddingProvider: EmbeddingProvider, Sendable {
             return Self.l2Normalize(vector)
         }
 
-        throw NSError(
-            domain: "ContextCore.EmbeddingProvider",
-            code: 5,
-            userInfo: [NSLocalizedDescriptionKey: "Unsupported embedding feature type"]
-        )
+        throw ContextCoreError.embeddingFailed("Unsupported embedding feature type")
     }
 
     private static func vector(from multiArray: MLMultiArray) -> [Float] {
@@ -213,11 +193,7 @@ internal struct CachingEmbeddingProvider: EmbeddingProvider, Sendable {
         if !missOrder.isEmpty {
             let embeddedMisses = try await base.embedBatch(missOrder)
             guard embeddedMisses.count == missOrder.count else {
-                throw NSError(
-                    domain: "ContextCore.CachingEmbeddingProvider",
-                    code: 10,
-                    userInfo: [NSLocalizedDescriptionKey: "embedBatch returned mismatched result count"]
-                )
+                throw ContextCoreError.embeddingFailed("embedBatch returned mismatched result count")
             }
 
             for (offset, text) in missOrder.enumerated() {

@@ -137,8 +137,10 @@ struct MemoryStoreTests {
         do {
             try await store.insert(turn: turn)
             #expect(Bool(false), "Expected embeddingFailed error")
+        } catch let error as ContextCoreError {
+            #expect(error == .embeddingFailed("Turn embedding is nil"))
         } catch {
-            #expect(Bool(true))
+            #expect(Bool(false), "Unexpected error type: \(error)")
         }
     }
 

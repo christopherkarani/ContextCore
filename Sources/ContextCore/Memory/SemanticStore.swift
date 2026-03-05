@@ -88,11 +88,7 @@ public actor SemanticStore {
 
     private func validateDimension(_ embedding: [Float]) throws {
         if let expected = embeddingDimension, expected != embedding.count {
-            throw NSError(
-                domain: "ContextCore.SemanticStore",
-                code: 2,
-                userInfo: [NSLocalizedDescriptionKey: "Dimension mismatch. expected: \(expected), got: \(embedding.count)"]
-            )
+            throw ContextCoreError.dimensionMismatch(expected: expected, got: embedding.count)
         }
         if embeddingDimension == nil {
             embeddingDimension = embedding.count

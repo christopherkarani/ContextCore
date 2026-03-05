@@ -23,11 +23,7 @@ public actor EpisodicStore {
 
     public func insert(turn: Turn) async throws {
         guard let embedding = turn.embedding else {
-            throw NSError(
-                domain: "ContextCore.EpisodicStore",
-                code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "Turn embedding is nil"]
-            )
+            throw ContextCoreError.embeddingFailed("Turn embedding is nil")
         }
 
         try validateDimension(embedding)
@@ -78,11 +74,7 @@ public actor EpisodicStore {
 
     private func validateDimension(_ embedding: [Float]) throws {
         if let expected = embeddingDimension, expected != embedding.count {
-            throw NSError(
-                domain: "ContextCore.EpisodicStore",
-                code: 2,
-                userInfo: [NSLocalizedDescriptionKey: "Dimension mismatch. expected: \(expected), got: \(embedding.count)"]
-            )
+            throw ContextCoreError.dimensionMismatch(expected: expected, got: embedding.count)
         }
         if embeddingDimension == nil {
             embeddingDimension = embedding.count
