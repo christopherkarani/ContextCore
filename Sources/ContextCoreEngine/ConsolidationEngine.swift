@@ -84,27 +84,13 @@ public actor ConsolidationEngine {
         threshold: Float = 0.92
     ) async throws -> [(UUID, UUID)] {
         let allChunks = await store.allChunks()
-        var chunks: [MemoryChunk] = []
-        chunks.reserveCapacity(allChunks.count)
-
-        for chunk in allChunks {
-            if await store.isConsolidated(id: chunk.id) {
-                continue
-            }
-            chunks.append(chunk)
-        }
+        let chunks = await unconsolidatedChunks(from: allChunks, store: store)
 
         guard chunks.count > 1 else {
             return []
         }
 
-        let dim = try validateDimensions(chunks)
-        let pairs: [(Int, Int)]
-        if chunks.count <= 2048 {
-            pairs = try await findCandidatesSimple(chunks: chunks, dim: dim, threshold: threshold)
-        } else {
-            pairs = try await findCandidatesTiled(chunks: chunks, dim: dim, threshold: threshold, tileSize: 512)
-        }
+        let pairs = try await findDuplicateIndexPairs(in: chunks, threshold: threshold)
 
         return pairs.map { (chunks[$0.0].id, chunks[$0.1].id) }
     }
@@ -210,18 +196,18 @@ public actor ConsolidationEngine {
         threshold: Float = 0.92
     ) async throws -> ConsolidationResult {
         let start = Date()
-        let pairs = try await findDuplicates(in: episodicStore, threshold: threshold)
-
         let allChunks = await episodicStore.allChunks()
-        let chunkMap = Dictionary(uniqueKeysWithValues: allChunks.map { ($0.id, $0) })
+        let unconsolidated = await unconsolidatedChunks(from: allChunks, store: episodicStore)
+        let pairs = try await findDuplicateIndexPairs(in: unconsolidated, threshold: threshold)
+
+        var chunkMap = Dictionary(uniqueKeysWithValues: allChunks.map { ($0.id, $0) })
 
         var promotedIDs = Set<UUID>()
         var processedChunkIDs = Set<UUID>()
 
-        for (idA, idB) in pairs {
-            guard let chunkA = chunkMap[idA], let chunkB = chunkMap[idB] else {
-                continue
-            }
+        for (indexA, indexB) in pairs {
+            let chunkA = unconsolidated[indexA]
+            let chunkB = unconsolidated[indexB]
             guard !processedChunkIDs.contains(chunkA.id), !processedChunkIDs.contains(chunkB.id) else {
                 continue
             }
@@ -242,12 +228,20 @@ public actor ConsolidationEngine {
 
             try await episodicStore.updateRetentionScore(id: chunkA.id, delta: -0.2)
             try await episodicStore.updateRetentionScore(id: chunkB.id, delta: -0.2)
+            if var updatedA = chunkMap[chunkA.id] {
+                updatedA.retentionScore = max(0, min(1, updatedA.retentionScore - 0.2))
+                chunkMap[chunkA.id] = updatedA
+            }
+            if var updatedB = chunkMap[chunkB.id] {
+                updatedB.retentionScore = max(0, min(1, updatedB.retentionScore - 0.2))
+                chunkMap[chunkB.id] = updatedB
+            }
             try await episodicStore.markConsolidated(id: chunkA.id)
             try await episodicStore.markConsolidated(id: chunkB.id)
         }
 
         var evicted = 0
-        for chunk in await episodicStore.allChunks() where chunk.retentionScore < 0.1 {
+        for chunk in chunkMap.values where chunk.retentionScore < 0.1 {
             try await episodicStore.evict(id: chunk.id)
             evicted += 1
         }
@@ -369,6 +363,39 @@ public actor ConsolidationEngine {
             )
         }
         return dim
+    }
+
+    private func unconsolidatedChunks(
+        from allChunks: [MemoryChunk],
+        store: any ConsolidationEpisodicStore
+    ) async -> [MemoryChunk] {
+        var chunks: [MemoryChunk] = []
+        chunks.reserveCapacity(allChunks.count)
+
+        for chunk in allChunks {
+            if await store.isConsolidated(id: chunk.id) {
+                continue
+            }
+            chunks.append(chunk)
+        }
+
+        return chunks
+    }
+
+    private func findDuplicateIndexPairs(
+        in chunks: [MemoryChunk],
+        threshold: Float
+    ) async throws -> [(Int, Int)] {
+        guard chunks.count > 1 else {
+            return []
+        }
+
+        let dim = try validateDimensions(chunks)
+        if chunks.count <= 2048 {
+            return try await findCandidatesSimple(chunks: chunks, dim: dim, threshold: threshold)
+        }
+
+        return try await findCandidatesTiled(chunks: chunks, dim: dim, threshold: threshold, tileSize: 512)
     }
 
     private func findCandidatesSimple(

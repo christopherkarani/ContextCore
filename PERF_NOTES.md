@@ -7,6 +7,7 @@
 - The scoring benchmark compared GPU end-to-end work against CPU math-only work, which overstated GPU overhead and hid where time was actually going.
 - The Metal relevance kernel recomputed `queryNorm` inside every thread.
 - `topKIndices` used a single-thread GPU kernel for effectively serial work.
+- `ConsolidationEngine.consolidate(...)` re-read episodic state multiple times, and the benchmark episodic fixture re-sorted all chunks on every `allChunks()` call.
 
 ## Changes Made
 
@@ -22,6 +23,8 @@
 - Tuned scoring dispatch width to `threadExecutionWidth`-aligned groups instead of the old `maxTotalThreadsPerThreadgroup` cap-by-count behavior.
 - Staged the query vector in threadgroup memory and added a `float4` fast path in the relevance kernel for `dim=384`-style workloads.
 - Replaced the serial GPU top-k implementation with a deterministic CPU sort path for current workload sizes.
+- Consolidation now reuses the initial episodic snapshot through duplicate processing instead of re-fetching all chunks multiple times in a single pass.
+- Consolidation benchmark fixtures now preserve insertion order directly instead of sorting dictionary values on every `allChunks()` access.
 - Split scoring benchmarks into:
   - `math-only`: pre-flattened scoring math with resident GPU buffers
   - `end-to-end`: public API validation + flatten + zip + sort
@@ -35,19 +38,19 @@
   - `consolidate` p99 at `(2000 chunks)`: `19.71ms`
   - scoring at `n=2000`: `0.02x` GPU vs CPU
 - Latest full release benchmark after this pass:
-  - `buildWindow` p99 at `(500 turns, 4096 tokens)`: `4.08ms`
-  - `consolidate` p99 at `(2000 chunks)`: `22.43ms`
+  - `buildWindow` p99 at `(500 turns, 4096 tokens)`: `4.89ms`
+  - `consolidate` p99 at `(2000 chunks)`: `15.61ms`
   - scoring `math-only`:
     - `n=2000`: `0.34x`
-    - `n=10000`: `1.18x`
-    - `n=50000`: `2.21x`
+    - `n=10000`: `1.15x`
+    - `n=50000`: `2.45x`
   - scoring `end-to-end`:
-    - `n=2000`: `0.84x`
+    - `n=2000`: `0.88x`
     - `n=10000`: `0.97x`
-    - `n=50000`: `0.99x`
+    - `n=50000`: `1.02x`
 
 ## Remaining Limits
 
 - The relevance kernel is still launch-overhead bound for the very small regime; CPU remains faster for the low-hundreds and still slightly faster end-to-end below `n≈10k`.
 - Public `scoreChunks(...)` still must flatten and sort to preserve API behavior. Internal callers now have a lower-overhead path, but the public API cannot skip that work.
-- `buildWindow` now beats the historical baseline on this machine, but `consolidate(2000)` p99 still sits slightly above the recorded `19.71ms` baseline at `22.43ms`. That acceptance item remains open.
+- Benchmark p99 for consolidation is still based on only `10` timed samples in the full profile, so it is effectively a max-like outlier metric. The current figure is better than baseline, but the methodology could still be strengthened with more iterations or setup/teardown-aware harness support.

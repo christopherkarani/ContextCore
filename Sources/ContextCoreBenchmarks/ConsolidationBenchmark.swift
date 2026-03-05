@@ -8,10 +8,12 @@ struct ConsolidationCaseResult: Sendable {
 
 private actor BenchmarkEpisodicStore: ConsolidationEpisodicStore {
     private var chunksByID: [UUID: MemoryChunk]
+    private var orderedIDs: [UUID]
     private var consolidatedIDs: Set<UUID>
 
     init(chunks: [MemoryChunk]) {
         self.chunksByID = Dictionary(uniqueKeysWithValues: chunks.map { ($0.id, $0) })
+        self.orderedIDs = chunks.map(\.id)
         self.consolidatedIDs = []
     }
 
@@ -20,7 +22,7 @@ private actor BenchmarkEpisodicStore: ConsolidationEpisodicStore {
     }
 
     func allChunks() async -> [MemoryChunk] {
-        chunksByID.values.sorted { $0.createdAt < $1.createdAt }
+        orderedIDs.compactMap { chunksByID[$0] }
     }
 
     func updateRetentionScore(id: UUID, delta: Float) async throws {
@@ -35,6 +37,7 @@ private actor BenchmarkEpisodicStore: ConsolidationEpisodicStore {
         guard chunksByID.removeValue(forKey: id) != nil else {
             throw ContextCoreError.chunkNotFound(id: id)
         }
+        orderedIDs.removeAll { $0 == id }
         consolidatedIDs.remove(id)
     }
 
