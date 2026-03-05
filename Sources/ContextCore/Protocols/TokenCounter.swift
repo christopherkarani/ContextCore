@@ -1,0 +1,4 @@
+import ContextCoreTypes
+
+public typealias TokenCounter = ContextCoreTypes.TokenCounter
+public typealias ApproximateTokenCounter = ContextCoreTypes.ApproximateTokenCounter

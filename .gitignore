@@ -1,0 +1,6 @@
+.DS_Store
+.build/
+.swiftpm/
+Package.resolved
+DerivedData/
+.wax_session_store
