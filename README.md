@@ -1,7 +1,7 @@
 # ContextCore 🧠
 
 <div align="center">
-  <img src="https://raw.githubusercontent.com/christopherkarani/ContextCore/main/Assets/banner.png" alt="ContextCore Banner" width="100%">
+  <img src="https://placehold.co/1200x300/000000/FFFFFF/png?text=Aura+%E2%9A%A1+ContextCore&font=montserrat" alt="ContextCore Banner" width="100%">
   <br>
   <h1><b>Aura ⚡️ ContextCore</b></h1>
   <h3><b>High-precision, low-latency memory scout for Apple Silicon.</b></h3>
@@ -82,23 +82,23 @@ ContextCore is designed to run locally on Apple Silicon.
 ```mermaid
 xychart-beta
     title "Window Build Latency (p99) - Lower is Better"
-    x-axis [Target Limit, ContextCore (M2)]
+    x-axis ["Target Limit", "ContextCore (M2)"]
     y-axis "Milliseconds (ms)" 0 --> 25
-    bar [20.0, 4.89]
+    bar [20.0, 6.54]
 ```
 
 ```mermaid
 xychart-beta
     title "Consolidation Time (2000 chunks) - Lower is Better"
-    x-axis [Target Limit, ContextCore (M2)]
+    x-axis ["Target Limit", "ContextCore (M2)"]
     y-axis "Milliseconds (ms)" 0 --> 500
-    bar [500.0, 15.61]
+    bar [500.0, 19.7]
 ```
 
 ```mermaid
 xychart-beta
     title "GPU Math Speedup (50000 chunks) - Higher is Better"
-    x-axis [CPU Baseline, ContextCore GPU]
+    x-axis ["CPU Baseline", "ContextCore GPU"]
     y-axis "Relative Speed" 0 --> 3
     bar [1.0, 2.45]
 ```
@@ -108,7 +108,7 @@ xychart-beta
 ```swift
 import ContextCore
 
-// 1. Initialize Cortex
+// 1. Initialize Aura
 let context = try AgentContext()
 
 // 2. Start a session
