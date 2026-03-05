@@ -44,7 +44,7 @@
 - [x] `consolidate` p99 < 500ms (2000 chunks): **19.71ms**
 - [x] LICENSE file present (MIT)
 - [x] Write GitHub release notes draft (`RELEASE_NOTES_v1.0.0.md`)
-- [ ] iOS simulator build/test verification (toolchain stdlib/sysroot issue in this environment)
+- [x] iOS simulator build/test verification via `xcodebuild` package scheme
 - [ ] visionOS simulator build verification (toolchain target support issue in this environment)
 - [ ] Compile verification with MetalANNS as `.package(path: ...)`
 - [ ] Tag `v1.0.0`
@@ -62,4 +62,4 @@
 ## Review
 - Completed: documentation pass, README rewrite, benchmark executable + full benchmark run, release verification (build/test/release/doc/sanitizers), benchmark/result artifacts, release notes draft.
 - Performance targets: met for `buildWindow` and `consolidate`; scoring benchmark currently shows GPU launch overhead dominating small batch sizes.
-- Remaining release ops: structured Phase 7 commits, tag creation/push, Swift Package Index submission, and non-macOS compatibility validation on an environment with proper simulator SDK/toolchain support.
+- Remaining release ops: tag creation/push, Swift Package Index submission, local-path dependency verification cleanup, and visionOS validation on an environment with the visionOS platform component installed.
