@@ -112,6 +112,65 @@ public enum CPUReference {
         }
     }
 
+    public static func pairwiseSimilarity(embeddings: [[Float]]) -> [[Float]] {
+        guard !embeddings.isEmpty else {
+            return []
+        }
+        let n = embeddings.count
+        if n == 1 {
+            return [[1.0]]
+        }
+
+        let dim = embeddings[0].count
+        precondition(embeddings.allSatisfy { $0.count == dim }, "Embedding dimension mismatch")
+
+        var matrix = Array(repeating: Array(repeating: Float.zero, count: n), count: n)
+        for i in 0..<n {
+            matrix[i][i] = 1.0
+            guard i + 1 < n else { continue }
+            for j in (i + 1)..<n {
+                let value = cosineSimilarity(embeddings[i], embeddings[j])
+                matrix[i][j] = value
+                matrix[j][i] = value
+            }
+        }
+        return matrix
+    }
+
+    public static func findMergeCandidates(
+        similarities: [[Float]],
+        threshold: Float
+    ) -> [(Int, Int)] {
+        guard !similarities.isEmpty else {
+            return []
+        }
+        let n = similarities.count
+        precondition(similarities.allSatisfy { $0.count == n }, "Similarity matrix must be square")
+
+        var pairs: [(Int, Int)] = []
+        for i in 0..<n {
+            guard i + 1 < n else { continue }
+            for j in (i + 1)..<n where similarities[i][j] > threshold {
+                pairs.append((i, j))
+            }
+        }
+        return pairs
+    }
+
+    public static func antipodalFraction(_ a: [Float], _ b: [Float]) -> Float {
+        precondition(a.count == b.count, "Vectors must match dimensions")
+        guard !a.isEmpty else {
+            return 0
+        }
+
+        var signDiffCount = 0
+        for idx in a.indices where (a[idx] >= 0) != (b[idx] >= 0) {
+            signDiffCount += 1
+        }
+
+        return Float(signDiffCount) / Float(a.count)
+    }
+
     private static func cosineSimilarity(_ lhs: [Float], _ rhs: [Float]) -> Float {
         guard lhs.count == rhs.count else {
             return 0

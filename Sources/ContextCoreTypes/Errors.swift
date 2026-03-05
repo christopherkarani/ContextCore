@@ -1,3 +1,5 @@
+import Foundation
+
 public enum ContextCoreError: Error, Sendable, Equatable {
     case embeddingFailed(String)
     case storeFull
@@ -7,4 +9,5 @@ public enum ContextCoreError: Error, Sendable, Equatable {
     case checkpointCorrupt
     case metalDeviceUnavailable
     case dimensionMismatch(expected: Int, got: Int)
+    case chunkNotFound(id: UUID)
 }

@@ -1,11 +1,12 @@
 import Foundation
 import MetalANNS
 
-public actor EpisodicStore {
+public actor EpisodicStore: ConsolidationEpisodicStore {
     private let index: Advanced.StreamingIndex
     private var chunksByID: [String: MemoryChunk] = [:]
     private let sourceSessionID: UUID
     private var embeddingDimension: Int?
+    private let consolidatedMarkerKey = "consolidated.phase4"
 
     public init(sourceSessionID: UUID = UUID()) {
         self.sourceSessionID = sourceSessionID
@@ -70,6 +71,51 @@ public actor EpisodicStore {
         }
 
         return retrieved
+    }
+
+    public func allChunks() async -> [MemoryChunk] {
+        chunksByID.values.sorted { lhs, rhs in
+            if lhs.createdAt != rhs.createdAt {
+                return lhs.createdAt < rhs.createdAt
+            }
+            return lhs.id.uuidString < rhs.id.uuidString
+        }
+    }
+
+    public func updateRetentionScore(id: UUID, delta: Float) async throws {
+        let key = id.uuidString
+        guard var chunk = chunksByID[key] else {
+            throw ContextCoreError.chunkNotFound(id: id)
+        }
+        let updated = max(0, min(1, chunk.retentionScore + delta))
+        chunk.retentionScore = updated
+        chunksByID[key] = chunk
+    }
+
+    public func evict(id: UUID) async throws {
+        let key = id.uuidString
+        guard chunksByID[key] != nil else {
+            throw ContextCoreError.chunkNotFound(id: id)
+        }
+        try await index.delete(id: key)
+        chunksByID.removeValue(forKey: key)
+    }
+
+    public func markConsolidated(id: UUID) async throws {
+        let key = id.uuidString
+        guard var chunk = chunksByID[key] else {
+            throw ContextCoreError.chunkNotFound(id: id)
+        }
+        chunk.metadata[consolidatedMarkerKey] = "true"
+        chunksByID[key] = chunk
+    }
+
+    public func isConsolidated(id: UUID) async -> Bool {
+        let key = id.uuidString
+        guard let chunk = chunksByID[key] else {
+            return false
+        }
+        return chunk.metadata[consolidatedMarkerKey] == "true"
     }
 
     private func validateDimension(_ embedding: [Float]) throws {

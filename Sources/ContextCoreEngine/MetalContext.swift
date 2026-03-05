@@ -25,7 +25,7 @@ enum MetalContext {
             return defaultLibrary
         }
 
-        let shaderNames = ["Relevance", "Recency", "Attention", "Compression"]
+        let shaderNames = ["Relevance", "Recency", "Attention", "Compression", "Consolidation"]
         let source = try shaderNames.map { name -> String in
             let url = bundle.url(forResource: name, withExtension: "metal")
                 ?? bundle.url(forResource: name, withExtension: "metal", subdirectory: "Shaders")

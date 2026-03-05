@@ -1,7 +1,7 @@
 import Foundation
 import MetalANNS
 
-public actor SemanticStore {
+public actor SemanticStore: ConsolidationSemanticStore {
     private let index: Advanced.StreamingIndex
     private var chunksByID: [String: MemoryChunk] = [:]
     private let sourceSessionID: UUID
@@ -84,6 +84,15 @@ public actor SemanticStore {
             embedding: embedding,
             metadata: ["kind": "fact"]
         )
+    }
+
+    public func allChunks() async -> [MemoryChunk] {
+        chunksByID.values.sorted { lhs, rhs in
+            if lhs.createdAt != rhs.createdAt {
+                return lhs.createdAt < rhs.createdAt
+            }
+            return lhs.id.uuidString < rhs.id.uuidString
+        }
     }
 
     private func validateDimension(_ embedding: [Float]) throws {

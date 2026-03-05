@@ -1,0 +1,4 @@
+import ContextCoreTypes
+
+public typealias ConsolidationEpisodicStore = ContextCoreTypes.ConsolidationEpisodicStore
+public typealias ConsolidationSemanticStore = ContextCoreTypes.ConsolidationSemanticStore
