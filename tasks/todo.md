@@ -107,10 +107,10 @@
 - [ ] Commit: `feat(phase3): 3.1 — ContextWindow and ContextChunk types with formatting`
 
 ## 3.2 WindowPacker
-- [ ] **TEST FIRST**: Add budget/compression/ordering tests in `WindowPackerTests.swift`
-- [ ] Implement `WindowPacker.swift` actor with guaranteed system/recent inclusion
-- [ ] Implement compression fallback via `CompressionEngine.rankSentences`
-- [ ] Run `swift test` and confirm 3.2 tests are green
+- [x] **TEST FIRST**: Add budget/compression/ordering tests in `WindowPackerTests.swift`
+- [x] Implement `WindowPacker.swift` actor with guaranteed system/recent inclusion
+- [x] Implement compression fallback via `CompressionEngine.rankSentences`
+- [x] Run `swift test` and confirm 3.2 tests are green
 - [ ] Commit: `feat(phase3): 3.2 — WindowPacker with budget accounting and compression fallback`
 
 ## 3.3 ChunkOrderer
