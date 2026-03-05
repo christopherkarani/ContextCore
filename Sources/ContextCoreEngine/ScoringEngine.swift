@@ -117,10 +117,14 @@ public actor ScoringEngine {
 
     public func computeRecencyWeights(
         timestamps: [Date],
-        halfLife: TimeInterval
+        halfLife: TimeInterval,
+        currentTime: Date = .now
     ) async throws -> [Float] {
         guard !timestamps.isEmpty else {
             return []
+        }
+        guard halfLife > 0 else {
+            throw ContextCoreError.compressionFailed("halfLife must be positive")
         }
 
         let timestampValues = timestamps.map { Float($0.timeIntervalSince1970) }
@@ -135,11 +139,11 @@ public actor ScoringEngine {
             throw ContextCoreError.compressionFailed("Failed to allocate recency buffers")
         }
 
-        var currentTime = Float(Date().timeIntervalSince1970)
+        var currentTimeSeconds = Float(currentTime.timeIntervalSince1970)
         var halfLifeF = Float(halfLife)
         var n32 = UInt32(n)
 
-        guard let currentTimeBuffer = device.makeBuffer(bytes: &currentTime, length: MemoryLayout<Float>.stride, options: .storageModeShared),
+        guard let currentTimeBuffer = device.makeBuffer(bytes: &currentTimeSeconds, length: MemoryLayout<Float>.stride, options: .storageModeShared),
               let halfLifeBuffer = device.makeBuffer(bytes: &halfLifeF, length: MemoryLayout<Float>.stride, options: .storageModeShared),
               let nBuffer = device.makeBuffer(bytes: &n32, length: MemoryLayout<UInt32>.stride, options: .storageModeShared)
         else {

@@ -39,4 +39,30 @@ public enum CPUReference {
             return cosine * relevanceWeight + recency * recencyWeight
         }
     }
+
+    public static func recencyWeights(
+        timestamps: [Date],
+        currentTime: Date,
+        halfLife: TimeInterval
+    ) -> [Float] {
+        guard !timestamps.isEmpty else {
+            return []
+        }
+        precondition(halfLife > 0, "halfLife must be positive")
+
+        let now = Float(currentTime.timeIntervalSince1970)
+        let halfLifeF = Float(halfLife)
+        let ln2: Float = 0.693147
+
+        var exponents = timestamps.map { timestamp -> Float in
+            let age = now - Float(timestamp.timeIntervalSince1970)
+            return -ln2 * age / halfLifeF
+        }
+
+        var values = [Float](repeating: 0, count: exponents.count)
+        var count = Int32(exponents.count)
+        vvexpf(&values, &exponents, &count)
+
+        return values.map { min(max($0, 0), 1) }
+    }
 }
