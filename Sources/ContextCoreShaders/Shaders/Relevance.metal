@@ -5,10 +5,11 @@ kernel void relevance_score(
     device const float* query        [[buffer(0)]],
     device const float* chunks       [[buffer(1)]],
     device const float* recencyWts   [[buffer(2)]],
-    device const float2* weights     [[buffer(3)]],
+    constant float2& weights         [[buffer(3)]],
     device float* scores             [[buffer(4)]],
     constant uint& dim               [[buffer(5)]],
     constant uint& n                 [[buffer(6)]],
+    constant float& queryNorm        [[buffer(7)]],
     uint gid                         [[thread_position_in_grid]]
 ) {
     if (gid >= n) {
@@ -18,18 +19,15 @@ kernel void relevance_score(
     const uint base = gid * dim;
 
     float dot = 0.0f;
-    float queryNormSq = 0.0f;
     float chunkNormSq = 0.0f;
 
     for (uint i = 0; i < dim; ++i) {
         const float q = query[i];
         const float c = chunks[base + i];
         dot += q * c;
-        queryNormSq += q * q;
         chunkNormSq += c * c;
     }
 
-    const float queryNorm = sqrt(queryNormSq);
     const float chunkNorm = sqrt(chunkNormSq);
 
     float cosine = 0.0f;
@@ -38,7 +36,7 @@ kernel void relevance_score(
         cosine = dot / denom;
     }
 
-    scores[gid] = cosine * weights[0].x + recencyWts[gid] * weights[0].y;
+    scores[gid] = cosine * weights.x + recencyWts[gid] * weights.y;
 }
 
 kernel void topk_indices(

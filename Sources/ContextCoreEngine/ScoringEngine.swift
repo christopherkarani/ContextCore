@@ -7,8 +7,21 @@ public actor ScoringEngine {
     private let device: MTLDevice
     private let commandQueue: MTLCommandQueue
     private let relevancePipeline: MTLComputePipelineState
-    private let topkPipeline: MTLComputePipelineState
     private let recencyPipeline: MTLComputePipelineState
+    private var scoringBuffers = ScoringBuffers()
+    private var recencyBuffers = RecencyBuffers()
+
+    private struct ScoringBuffers {
+        var query: MTLBuffer?
+        var chunks: MTLBuffer?
+        var recency: MTLBuffer?
+        var output: MTLBuffer?
+    }
+
+    private struct RecencyBuffers {
+        var timestamps: MTLBuffer?
+        var output: MTLBuffer?
+    }
 
     /// Creates a scoring engine and compiles required Metal pipelines.
     ///
@@ -24,16 +37,11 @@ public actor ScoringEngine {
             throw ContextCoreError.compressionFailed("Missing relevance_score function")
         }
 
-        guard let topkFunction = library.makeFunction(name: "topk_indices") else {
-            throw ContextCoreError.compressionFailed("Missing topk_indices function")
-        }
-
         guard let recencyFunction = library.makeFunction(name: "compute_recency_weights") else {
             throw ContextCoreError.compressionFailed("Missing compute_recency_weights function")
         }
 
         self.relevancePipeline = try self.device.makeComputePipelineState(function: relevanceFunction)
-        self.topkPipeline = try self.device.makeComputePipelineState(function: topkFunction)
         self.recencyPipeline = try self.device.makeComputePipelineState(function: recencyFunction)
     }
 
@@ -54,6 +62,24 @@ public actor ScoringEngine {
         relevanceWeight: Float = 0.7,
         recencyWeight: Float = 0.3
     ) async throws -> [(chunk: MemoryChunk, score: Float)] {
+        let unsorted = try await scoreChunksUnsorted(
+            query: query,
+            chunks: chunks,
+            recencyWeights: recencyWeights,
+            relevanceWeight: relevanceWeight,
+            recencyWeight: recencyWeight
+        )
+
+        return unsorted.sorted(by: { $0.score > $1.score })
+    }
+
+    package func scoreChunksUnsorted(
+        query: [Float],
+        chunks: [MemoryChunk],
+        recencyWeights: [Float],
+        relevanceWeight: Float = 0.7,
+        recencyWeight: Float = 0.3
+    ) async throws -> [(chunk: MemoryChunk, score: Float)] {
         guard !chunks.isEmpty else {
             return []
         }
@@ -62,12 +88,16 @@ public actor ScoringEngine {
         }
 
         let dim = query.count
-        guard chunks.allSatisfy({ $0.embedding.count == dim }) else {
-            throw ContextCoreError.dimensionMismatch(expected: dim, got: chunks.first(where: { $0.embedding.count != dim })?.embedding.count ?? 0)
+        var flattened: [Float] = []
+        flattened.reserveCapacity(chunks.count * dim)
+        for chunk in chunks {
+            guard chunk.embedding.count == dim else {
+                throw ContextCoreError.dimensionMismatch(expected: dim, got: chunk.embedding.count)
+            }
+            flattened.append(contentsOf: chunk.embedding)
         }
 
-        let flattened = chunks.flatMap(\.embedding)
-        let scores = try await scoreEmbeddings(
+        let scores = try await scoreFlattenedEmbeddings(
             query: query,
             flattenedEmbeddings: flattened,
             count: chunks.count,
@@ -79,7 +109,6 @@ public actor ScoringEngine {
 
         return zip(chunks, scores)
             .map { (chunk: $0.0, score: $0.1) }
-            .sorted(by: { $0.score > $1.score })
     }
 
     /// Returns indices of top-k values from a score vector using GPU selection.
@@ -98,43 +127,15 @@ public actor ScoringEngine {
         }
 
         let cappedK = min(k, scores.count)
-
-        guard let scoresBuffer = device.makeBuffer(from: scores) else {
-            throw ContextCoreError.compressionFailed("Failed to allocate scores buffer")
-        }
-        var indexStorage = [UInt32](repeating: 0, count: cappedK)
-        guard let indicesBuffer = device.makeBuffer(from: indexStorage) else {
-            throw ContextCoreError.compressionFailed("Failed to allocate indices buffer")
-        }
-
-        var n32 = UInt32(scores.count)
-        var k32 = UInt32(cappedK)
-
-        guard let nBuffer = device.makeBuffer(bytes: &n32, length: MemoryLayout<UInt32>.stride, options: .storageModeShared),
-              let kBuffer = device.makeBuffer(bytes: &k32, length: MemoryLayout<UInt32>.stride, options: .storageModeShared),
-              let commandBuffer = commandQueue.makeCommandBuffer(),
-              let encoder = commandBuffer.makeComputeCommandEncoder()
-        else {
-            throw ContextCoreError.compressionFailed("Failed to build top-k command")
-        }
-
-        encoder.setComputePipelineState(topkPipeline)
-        encoder.setBuffer(scoresBuffer, offset: 0, index: 0)
-        encoder.setBuffer(indicesBuffer, offset: 0, index: 1)
-        encoder.setBuffer(nBuffer, offset: 0, index: 2)
-        encoder.setBuffer(kBuffer, offset: 0, index: 3)
-
-        let threads = MTLSize(width: 1, height: 1, depth: 1)
-        let groups = MTLSize(width: 1, height: 1, depth: 1)
-        encoder.dispatchThreadgroups(groups, threadsPerThreadgroup: threads)
-        encoder.endEncoding()
-
-        try await MetalContext.awaitCompletion(of: commandBuffer)
-
-        let raw = indicesBuffer.contents().bindMemory(to: UInt32.self, capacity: cappedK)
-        indexStorage = Array(UnsafeBufferPointer(start: raw, count: cappedK))
-
-        return indexStorage.map(Int.init)
+        return scores.enumerated()
+            .sorted { lhs, rhs in
+                if lhs.element == rhs.element {
+                    return lhs.offset < rhs.offset
+                }
+                return lhs.element > rhs.element
+            }
+            .prefix(cappedK)
+            .map(\.offset)
     }
 
     /// Computes exponential recency weights using a half-life decay function.
@@ -159,11 +160,20 @@ public actor ScoringEngine {
 
         let timestampValues = timestamps.map { Float($0.timeIntervalSince1970) }
         let n = timestampValues.count
-        var output = [Float](repeating: 0, count: n)
+        let timestampBuffer = try reusableBuffer(
+            current: &recencyBuffers.timestamps,
+            minimumLength: timestampValues.count * MemoryLayout<Float>.stride,
+            failureMessage: "Failed to allocate recency timestamp buffer"
+        )
+        let outputBuffer = try reusableBuffer(
+            current: &recencyBuffers.output,
+            minimumLength: n * MemoryLayout<Float>.stride,
+            failureMessage: "Failed to allocate recency output buffer"
+        )
 
-        guard let timestampBuffer = device.makeBuffer(from: timestampValues),
-              let outputBuffer = device.makeBuffer(from: output),
-              let commandBuffer = commandQueue.makeCommandBuffer(),
+        write(timestampValues, to: timestampBuffer)
+
+        guard let commandBuffer = commandQueue.makeCommandBuffer(),
               let encoder = commandBuffer.makeComputeCommandEncoder()
         else {
             throw ContextCoreError.compressionFailed("Failed to allocate recency buffers")
@@ -173,30 +183,55 @@ public actor ScoringEngine {
         var halfLifeF = Float(halfLife)
         var n32 = UInt32(n)
 
-        guard let currentTimeBuffer = device.makeBuffer(bytes: &currentTimeSeconds, length: MemoryLayout<Float>.stride, options: .storageModeShared),
-              let halfLifeBuffer = device.makeBuffer(bytes: &halfLifeF, length: MemoryLayout<Float>.stride, options: .storageModeShared),
-              let nBuffer = device.makeBuffer(bytes: &n32, length: MemoryLayout<UInt32>.stride, options: .storageModeShared)
-        else {
-            throw ContextCoreError.compressionFailed("Failed to create recency constants")
-        }
-
         encoder.setComputePipelineState(recencyPipeline)
         encoder.setBuffer(timestampBuffer, offset: 0, index: 0)
         encoder.setBuffer(outputBuffer, offset: 0, index: 1)
-        encoder.setBuffer(currentTimeBuffer, offset: 0, index: 2)
-        encoder.setBuffer(halfLifeBuffer, offset: 0, index: 3)
-        encoder.setBuffer(nBuffer, offset: 0, index: 4)
+        encoder.setBytes(&currentTimeSeconds, length: MemoryLayout<Float>.stride, index: 2)
+        encoder.setBytes(&halfLifeF, length: MemoryLayout<Float>.stride, index: 3)
+        encoder.setBytes(&n32, length: MemoryLayout<UInt32>.stride, index: 4)
 
         let threads = MetalContext.threadsPerThreadgroup(pipeline: recencyPipeline, count: n)
         let groups = MetalContext.threadgroups(threadsPerThreadgroup: threads, count: n)
         encoder.dispatchThreadgroups(groups, threadsPerThreadgroup: threads)
         encoder.endEncoding()
 
-        try await MetalContext.awaitCompletion(of: commandBuffer)
+        try await awaitCompletion(of: commandBuffer)
 
         let raw = outputBuffer.contents().bindMemory(to: Float.self, capacity: n)
-        output = Array(UnsafeBufferPointer(start: raw, count: n))
-        return output
+        return Array(UnsafeBufferPointer(start: raw, count: n))
+    }
+
+    package func scoreFlattenedEmbeddings(
+        query: [Float],
+        flattenedEmbeddings: [Float],
+        count: Int,
+        dimension: Int,
+        recencyWeights: [Float],
+        relevanceWeight: Float,
+        recencyWeight: Float
+    ) async throws -> [Float] {
+        guard count > 0 else {
+            return []
+        }
+        guard query.count == dimension else {
+            throw ContextCoreError.dimensionMismatch(expected: dimension, got: query.count)
+        }
+        guard flattenedEmbeddings.count == count * dimension else {
+            throw ContextCoreError.dimensionMismatch(expected: count * dimension, got: flattenedEmbeddings.count)
+        }
+        guard recencyWeights.count == count else {
+            throw ContextCoreError.dimensionMismatch(expected: count, got: recencyWeights.count)
+        }
+
+        return try await scoreEmbeddings(
+            query: query,
+            flattenedEmbeddings: flattenedEmbeddings,
+            count: count,
+            dimension: dimension,
+            recencyWeights: recencyWeights,
+            relevanceWeight: relevanceWeight,
+            recencyWeight: recencyWeight
+        )
     }
 
     private func scoreEmbeddings(
@@ -208,47 +243,110 @@ public actor ScoringEngine {
         relevanceWeight: Float,
         recencyWeight: Float
     ) async throws -> [Float] {
-        var output = [Float](repeating: 0, count: count)
-        var weights = SIMD2<Float>(relevanceWeight, recencyWeight)
+        let queryBuffer = try reusableBuffer(
+            current: &scoringBuffers.query,
+            minimumLength: query.count * MemoryLayout<Float>.stride,
+            failureMessage: "Failed to allocate query buffer"
+        )
+        let chunksBuffer = try reusableBuffer(
+            current: &scoringBuffers.chunks,
+            minimumLength: flattenedEmbeddings.count * MemoryLayout<Float>.stride,
+            failureMessage: "Failed to allocate chunk buffer"
+        )
+        let recencyBuffer = try reusableBuffer(
+            current: &scoringBuffers.recency,
+            minimumLength: recencyWeights.count * MemoryLayout<Float>.stride,
+            failureMessage: "Failed to allocate recency buffer"
+        )
+        let outputBuffer = try reusableBuffer(
+            current: &scoringBuffers.output,
+            minimumLength: count * MemoryLayout<Float>.stride,
+            failureMessage: "Failed to allocate scoring output buffer"
+        )
 
-        guard let queryBuffer = device.makeBuffer(from: query),
-              let chunksBuffer = device.makeBuffer(from: flattenedEmbeddings),
-              let recencyBuffer = device.makeBuffer(from: recencyWeights),
-              let weightsBuffer = device.makeBuffer(bytes: &weights, length: MemoryLayout<SIMD2<Float>>.stride, options: .storageModeShared),
-              let outputBuffer = device.makeBuffer(from: output),
-              let commandBuffer = commandQueue.makeCommandBuffer(),
+        write(query, to: queryBuffer)
+        write(flattenedEmbeddings, to: chunksBuffer)
+        write(recencyWeights, to: recencyBuffer)
+
+        var weights = SIMD2<Float>(relevanceWeight, recencyWeight)
+        var dim32 = UInt32(dimension)
+        var n32 = UInt32(count)
+        var queryNorm = l2Norm(query)
+
+        guard let commandBuffer = commandQueue.makeCommandBuffer(),
               let encoder = commandBuffer.makeComputeCommandEncoder()
         else {
             throw ContextCoreError.compressionFailed("Failed to allocate scoring buffers")
-        }
-
-        var dim32 = UInt32(dimension)
-        var n32 = UInt32(count)
-
-        guard let dimBuffer = device.makeBuffer(bytes: &dim32, length: MemoryLayout<UInt32>.stride, options: .storageModeShared),
-              let nBuffer = device.makeBuffer(bytes: &n32, length: MemoryLayout<UInt32>.stride, options: .storageModeShared)
-        else {
-            throw ContextCoreError.compressionFailed("Failed to create scoring constants")
         }
 
         encoder.setComputePipelineState(relevancePipeline)
         encoder.setBuffer(queryBuffer, offset: 0, index: 0)
         encoder.setBuffer(chunksBuffer, offset: 0, index: 1)
         encoder.setBuffer(recencyBuffer, offset: 0, index: 2)
-        encoder.setBuffer(weightsBuffer, offset: 0, index: 3)
+        encoder.setBytes(&weights, length: MemoryLayout<SIMD2<Float>>.stride, index: 3)
         encoder.setBuffer(outputBuffer, offset: 0, index: 4)
-        encoder.setBuffer(dimBuffer, offset: 0, index: 5)
-        encoder.setBuffer(nBuffer, offset: 0, index: 6)
+        encoder.setBytes(&dim32, length: MemoryLayout<UInt32>.stride, index: 5)
+        encoder.setBytes(&n32, length: MemoryLayout<UInt32>.stride, index: 6)
+        encoder.setBytes(&queryNorm, length: MemoryLayout<Float>.stride, index: 7)
 
         let threads = MetalContext.threadsPerThreadgroup(pipeline: relevancePipeline, count: count)
         let groups = MetalContext.threadgroups(threadsPerThreadgroup: threads, count: count)
         encoder.dispatchThreadgroups(groups, threadsPerThreadgroup: threads)
         encoder.endEncoding()
 
-        try await MetalContext.awaitCompletion(of: commandBuffer)
+        try await awaitCompletion(of: commandBuffer)
 
         let raw = outputBuffer.contents().bindMemory(to: Float.self, capacity: count)
-        output = Array(UnsafeBufferPointer(start: raw, count: count))
-        return output
+        return Array(UnsafeBufferPointer(start: raw, count: count))
+    }
+
+    private func reusableBuffer(
+        current: inout MTLBuffer?,
+        minimumLength: Int,
+        failureMessage: String
+    ) throws -> MTLBuffer {
+        if let current, current.length >= minimumLength {
+            return current
+        }
+
+        guard let replacement = device.makeBuffer(length: minimumLength, options: .storageModeShared) else {
+            throw ContextCoreError.compressionFailed(failureMessage)
+        }
+        current = replacement
+        return replacement
+    }
+
+    private func write(_ values: [Float], to buffer: MTLBuffer) {
+        values.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else {
+                return
+            }
+            memcpy(buffer.contents(), baseAddress, rawBuffer.count)
+        }
+    }
+
+    private func l2Norm(_ vector: [Float]) -> Float {
+        guard !vector.isEmpty else {
+            return 0
+        }
+
+        var sum: Float = 0
+        for value in vector {
+            sum += value * value
+        }
+        return sum.squareRoot()
+    }
+
+    private func awaitCompletion(of commandBuffer: MTLCommandBuffer) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            commandBuffer.addCompletedHandler { buffer in
+                if let error = buffer.error {
+                    continuation.resume(throwing: ContextCoreError.compressionFailed("Metal command failed: \(error.localizedDescription)"))
+                    return
+                }
+                continuation.resume(returning: ())
+            }
+            commandBuffer.commit()
+        }
     }
 }

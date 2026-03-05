@@ -1,6 +1,7 @@
 import Foundation
 import OSLog
 import os.lock
+import ContextCoreEngine
 
 extension Logger {
     static let contextCore = Logger(subsystem: "com.contextcore", category: "AgentContext")
@@ -543,7 +544,7 @@ public actor AgentContext {
             halfLife: halfLife
         )
 
-        let baseScores = try await scoringEngine.scoreChunks(
+        let baseScores = try await scoringEngine.scoreChunksUnsorted(
             query: taskEmbedding,
             chunks: chunks,
             recencyWeights: recencyWeights,

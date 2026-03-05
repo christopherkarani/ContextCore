@@ -18,27 +18,69 @@ public enum CPUReference {
         precondition(query.count == chunks[0].count, "Query dimension must match chunk dimension")
         precondition(chunks.count == recencyWeights.count, "Chunk count must match recency weight count")
 
-        var queryNormSquared: Float = 0
-        query.withUnsafeBufferPointer { ptr in
-            vDSP_svesq(ptr.baseAddress!, 1, &queryNormSquared, vDSP_Length(query.count))
+        let dimension = query.count
+        var flattened: [Float] = []
+        flattened.reserveCapacity(chunks.count * dimension)
+        for chunk in chunks {
+            precondition(chunk.count == dimension, "Query dimension must match chunk dimension")
+            flattened.append(contentsOf: chunk)
         }
-        let queryNorm = sqrt(queryNormSquared)
 
-        return zip(chunks, recencyWeights).map { chunk, recency in
-            var dot: Float = 0
-            var chunkNormSquared: Float = 0
+        return relevanceScores(
+            query: query,
+            flattenedChunks: flattened,
+            count: chunks.count,
+            dimension: dimension,
+            recencyWeights: recencyWeights,
+            relevanceWeight: relevanceWeight,
+            recencyWeight: recencyWeight
+        )
+    }
 
-            query.withUnsafeBufferPointer { queryPtr in
-                chunk.withUnsafeBufferPointer { chunkPtr in
-                    vDSP_dotpr(queryPtr.baseAddress!, 1, chunkPtr.baseAddress!, 1, &dot, vDSP_Length(query.count))
-                    vDSP_svesq(chunkPtr.baseAddress!, 1, &chunkNormSquared, vDSP_Length(chunk.count))
+    /// Computes combined relevance and recency scores on CPU over a flattened chunk matrix.
+    public static func relevanceScores(
+        query: [Float],
+        flattenedChunks: [Float],
+        count: Int,
+        dimension: Int,
+        recencyWeights: [Float],
+        relevanceWeight: Float = 0.7,
+        recencyWeight: Float = 0.3
+    ) -> [Float] {
+        guard count > 0 else {
+            return []
+        }
+        precondition(query.count == dimension, "Query dimension must match provided dimension")
+        precondition(flattenedChunks.count == count * dimension, "Flattened chunk matrix shape mismatch")
+        precondition(count == recencyWeights.count, "Chunk count must match recency weight count")
+
+        let queryNorm = l2Norm(query)
+
+        return flattenedChunks.withUnsafeBufferPointer { chunksPointer in
+            query.withUnsafeBufferPointer { queryPointer in
+                var scores = [Float](repeating: 0, count: count)
+
+                guard let chunksBase = chunksPointer.baseAddress,
+                      let queryBase = queryPointer.baseAddress
+                else {
+                    return scores
                 }
-            }
 
-            let chunkNorm = sqrt(chunkNormSquared)
-            let denom = queryNorm * chunkNorm
-            let cosine: Float = denom > 0 ? dot / denom : 0
-            return cosine * relevanceWeight + recency * recencyWeight
+                for index in 0..<count {
+                    let chunkBase = chunksBase.advanced(by: index * dimension)
+                    var dot: Float = 0
+                    var chunkNormSquared: Float = 0
+                    vDSP_dotpr(queryBase, 1, chunkBase, 1, &dot, vDSP_Length(dimension))
+                    vDSP_svesq(chunkBase, 1, &chunkNormSquared, vDSP_Length(dimension))
+
+                    let chunkNorm = sqrt(chunkNormSquared)
+                    let denom = queryNorm * chunkNorm
+                    let cosine: Float = denom > 0 ? dot / denom : 0
+                    scores[index] = cosine * relevanceWeight + recencyWeights[index] * recencyWeight
+                }
+
+                return scores
+            }
         }
     }
 
@@ -202,5 +244,20 @@ public enum CPUReference {
             return 0
         }
         return dot / denom
+    }
+
+    private static func l2Norm(_ vector: [Float]) -> Float {
+        guard !vector.isEmpty else {
+            return 0
+        }
+
+        var normSquared: Float = 0
+        vector.withUnsafeBufferPointer { pointer in
+            guard let baseAddress = pointer.baseAddress else {
+                return
+            }
+            vDSP_svesq(baseAddress, 1, &normSquared, vDSP_Length(pointer.count))
+        }
+        return sqrt(normSquared)
     }
 }

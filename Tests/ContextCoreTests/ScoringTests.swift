@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import ContextCore
+import ContextCoreEngine
 
 @Suite("Scoring Tests")
 struct ScoringTests {
@@ -119,6 +120,78 @@ struct ScoringTests {
         }
 
         #expect(changed)
+    }
+
+    @Test("Package unsorted scoring matches public sorted scoring")
+    func packageUnsortedScoringMatchesPublicResults() async throws {
+        let dim = 384
+        let n = 48
+        let query = TestHelpers.randomVector(dim: dim, seed: 5101)
+        let embeddings = TestHelpers.randomVectors(n: n, dim: dim, seed: 5102)
+        let recency = (0..<n).map { index in Float(index) / Float(max(1, n - 1)) }
+        let chunks = makeChunks(from: embeddings)
+
+        let engine = try ContextCoreEngine.ScoringEngine()
+        let unsorted = try await engine.scoreChunksUnsorted(
+            query: query,
+            chunks: chunks,
+            recencyWeights: recency,
+            relevanceWeight: 0.7,
+            recencyWeight: 0.3
+        )
+        let sorted = try await engine.scoreChunks(
+            query: query,
+            chunks: chunks,
+            recencyWeights: recency,
+            relevanceWeight: 0.7,
+            recencyWeight: 0.3
+        )
+
+        let sortedFromUnsorted = unsorted.sorted { $0.score > $1.score }
+        #expect(sortedFromUnsorted.count == sorted.count)
+
+        for index in sorted.indices {
+            #expect(sortedFromUnsorted[index].chunk.id == sorted[index].chunk.id)
+            #expect(abs(sortedFromUnsorted[index].score - sorted[index].score) < 1e-6)
+        }
+    }
+
+    @Test("Package flattened scoring matches CPU reference")
+    func packageFlattenedScoringMatchesCPUReference() async throws {
+        let dim = 384
+        let n = 96
+        let query = TestHelpers.randomVector(dim: dim, seed: 5201)
+        let embeddings = TestHelpers.randomVectors(n: n, dim: dim, seed: 5202)
+        let recency = (0..<n).map { index in Float(index) / Float(max(1, n - 1)) }
+        var flattened: [Float] = []
+        flattened.reserveCapacity(n * dim)
+        for embedding in embeddings {
+            flattened.append(contentsOf: embedding)
+        }
+
+        let cpu = ContextCoreEngine.CPUReference.relevanceScores(
+            query: query,
+            flattenedChunks: flattened,
+            count: n,
+            dimension: dim,
+            recencyWeights: recency,
+            relevanceWeight: 0.7,
+            recencyWeight: 0.3
+        )
+
+        let engine = try ContextCoreEngine.ScoringEngine()
+        let gpu = try await engine.scoreFlattenedEmbeddings(
+            query: query,
+            flattenedEmbeddings: flattened,
+            count: n,
+            dimension: dim,
+            recencyWeights: recency,
+            relevanceWeight: 0.7,
+            recencyWeight: 0.3
+        )
+
+        let maxError = TestHelpers.maxAbsError(gpu, cpu)
+        #expect(maxError < 1e-4)
     }
 
     @Test("Single chunk scoring")

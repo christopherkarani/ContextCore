@@ -70,7 +70,10 @@ let package = Package(
         ),
         .testTarget(
             name: "ContextCoreTests",
-            dependencies: ["ContextCore"],
+            dependencies: [
+                "ContextCore",
+                "ContextCoreEngine",
+            ],
             path: "Tests/ContextCoreTests"
         ),
     ]

@@ -24,8 +24,13 @@ func generateBenchmarksMarkdown(
 ) throws {
     let buildByKey = Dictionary(uniqueKeysWithValues: buildWindow.map { ("\($0.turns)-\($0.budget)", $0.metrics) })
     let consolidationByKey = Dictionary(uniqueKeysWithValues: consolidation.map { ($0.chunks, $0.metrics) })
-    let scoringByKey = Dictionary(uniqueKeysWithValues: scoring.map { ($0.n, $0) })
+    let scoringByKey = Dictionary(uniqueKeysWithValues: scoring.map { ("\($0.track.rawValue)-\($0.n)", $0) })
     let sortedRecall = recall.sorted { $0.k < $1.k }
+    let scoringSizes = scoring.map(\.n).sorted().reduce(into: [Int]()) { values, size in
+        if values.last != size {
+            values.append(size)
+        }
+    }
 
     var lines: [String] = []
     lines.append("# ContextCore Benchmarks")
@@ -70,13 +75,33 @@ func generateBenchmarksMarkdown(
     lines.append("")
     lines.append("## Metal vs CPU Scoring")
     lines.append("")
-    lines.append("| n | GPU p50 (ms) | CPU p50 (ms) | Speedup |")
-    lines.append("|---|---|---|---|")
-    for n in [100, 500, 2000] {
-        if let row = scoringByKey[n] {
-            lines.append("| \(n) | \(formatMs(row.gpu.p50Ms)) | \(formatMs(row.cpu.p50Ms)) | \(String(format: "%.2fx", row.speedup)) |")
+    lines.append("Math-only isolates score computation over pre-flattened inputs. End-to-end includes public API validation, flattening, zip, and final sort.")
+    lines.append("")
+    lines.append("### Math-only")
+    lines.append("")
+    lines.append("| n | GPU p50 | GPU p99 | GPU throughput | CPU p50 | CPU p99 | CPU throughput | Speedup |")
+    lines.append("|---|---|---|---|---|---|---|---|")
+    for n in scoringSizes {
+        if let row = scoringByKey["\(ScoringBenchmarkTrack.mathOnly.rawValue)-\(n)"] {
+            lines.append(
+                "| \(n) | \(formatDuration(row.gpu.p50Ms)) | \(formatDuration(row.gpu.p99Ms)) | \(row.gpu.throughputP50.map(formatThroughput) ?? "N/A") | \(formatDuration(row.cpu.p50Ms)) | \(formatDuration(row.cpu.p99Ms)) | \(row.cpu.throughputP50.map(formatThroughput) ?? "N/A") | \(String(format: "%.2fx", row.speedup)) |"
+            )
         } else {
-            lines.append("| \(n) | N/A | N/A | N/A |")
+            lines.append("| \(n) | N/A | N/A | N/A | N/A | N/A | N/A | N/A |")
+        }
+    }
+    lines.append("")
+    lines.append("### End-to-end")
+    lines.append("")
+    lines.append("| n | GPU p50 | GPU p99 | GPU throughput | CPU p50 | CPU p99 | CPU throughput | Speedup |")
+    lines.append("|---|---|---|---|---|---|---|---|")
+    for n in scoringSizes {
+        if let row = scoringByKey["\(ScoringBenchmarkTrack.endToEnd.rawValue)-\(n)"] {
+            lines.append(
+                "| \(n) | \(formatDuration(row.gpu.p50Ms)) | \(formatDuration(row.gpu.p99Ms)) | \(row.gpu.throughputP50.map(formatThroughput) ?? "N/A") | \(formatDuration(row.cpu.p50Ms)) | \(formatDuration(row.cpu.p99Ms)) | \(row.cpu.throughputP50.map(formatThroughput) ?? "N/A") | \(String(format: "%.2fx", row.speedup)) |"
+            )
+        } else {
+            lines.append("| \(n) | N/A | N/A | N/A | N/A | N/A | N/A | N/A |")
         }
     }
     lines.append("")
@@ -93,8 +118,8 @@ func generateBenchmarksMarkdown(
     lines.append("500-turn session, dim=384, degree=32:")
     lines.append("- Episodic index: ~0.9 MB")
     lines.append("- Semantic index: ~0.1 MB")
-    lines.append("- Scoring buffers: ~0.01 MB per call")
-    lines.append("- **Total GPU memory: ~1 MB**")
+    lines.append("- Scoring buffers: reused shared Metal buffers sized to the largest active scoring workload")
+    lines.append("- **Total GPU memory: dominated by active embedding and scoring workload size**")
 
     try lines.joined(separator: "\n").write(to: outputURL, atomically: true, encoding: .utf8)
 }

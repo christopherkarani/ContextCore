@@ -26,9 +26,14 @@ struct BenchmarkRunner {
 
         print("\n--- Metal vs CPU Scoring ---")
         let scoringResults = try await runScoringBenchmarks()
-        for result in scoringResults {
+        for result in scoringResults.filter({ $0.track == .mathOnly }) {
             print(
-                "  n=\(result.n): gpu=\(formatMs(result.gpu.p50Ms))ms cpu=\(formatMs(result.cpu.p50Ms))ms speedup=\(String(format: "%.2fx", result.speedup))"
+                "  math n=\(result.n): gpu=\(formatDuration(result.gpu.p50Ms)) (\(result.gpu.throughputP50.map(formatThroughput) ?? "n/a")) cpu=\(formatDuration(result.cpu.p50Ms)) (\(result.cpu.throughputP50.map(formatThroughput) ?? "n/a")) speedup=\(String(format: "%.2fx", result.speedup))"
+            )
+        }
+        for result in scoringResults.filter({ $0.track == .endToEnd }) {
+            print(
+                "  pipeline n=\(result.n): gpu=\(formatDuration(result.gpu.p50Ms)) (\(result.gpu.throughputP50.map(formatThroughput) ?? "n/a")) cpu=\(formatDuration(result.cpu.p50Ms)) (\(result.cpu.throughputP50.map(formatThroughput) ?? "n/a")) speedup=\(String(format: "%.2fx", result.speedup))"
             )
         }
 
