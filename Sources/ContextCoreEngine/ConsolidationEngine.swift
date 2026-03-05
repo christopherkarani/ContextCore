@@ -2,12 +2,18 @@ import ContextCoreTypes
 import Foundation
 import Metal
 
+/// Summary metrics from a consolidation pass.
 public struct ConsolidationResult: Sendable, Equatable {
+    /// Number of duplicate pairs found.
     public let duplicatePairsFound: Int
+    /// Number of facts promoted to semantic memory.
     public let factsPromoted: Int
+    /// Number of episodic chunks evicted.
     public let chunksEvicted: Int
+    /// Consolidation duration in milliseconds.
     public let durationMs: Double
 
+    /// Creates a consolidation result.
     public init(
         duplicatePairsFound: Int,
         factsPromoted: Int,
@@ -21,6 +27,7 @@ public struct ConsolidationResult: Sendable, Equatable {
     }
 }
 
+/// GPU-backed consolidation engine for deduplication, promotion, and contradiction detection.
 public actor ConsolidationEngine {
     private let device: MTLDevice
     private let commandQueue: MTLCommandQueue
@@ -30,6 +37,12 @@ public actor ConsolidationEngine {
     private let antipodalPipeline: MTLComputePipelineState
     private let embeddingProvider: any EmbeddingProvider
 
+    /// Creates a consolidation engine and compiles required Metal pipelines.
+    ///
+    /// - Parameters:
+    ///   - device: Optional Metal device override.
+    ///   - embeddingProvider: Embedding provider used by downstream flows.
+    /// - Throws: Metal initialization or pipeline creation failures.
     public init(
         device: MTLDevice? = nil,
         embeddingProvider: any EmbeddingProvider
@@ -59,6 +72,13 @@ public actor ConsolidationEngine {
         self.antipodalPipeline = try self.device.makeComputePipelineState(function: antipodalFunction)
     }
 
+    /// Finds duplicate episodic chunk pairs above a similarity threshold.
+    ///
+    /// - Parameters:
+    ///   - store: Episodic store to scan.
+    ///   - threshold: Cosine similarity threshold for duplicate candidacy.
+    /// - Returns: Duplicate chunk ID pairs.
+    /// - Throws: Dimension mismatch and Metal execution errors.
     public func findDuplicates(
         in store: any ConsolidationEpisodicStore,
         threshold: Float = 0.92
@@ -89,6 +109,11 @@ public actor ConsolidationEngine {
         return pairs.map { (chunks[$0.0].id, chunks[$0.1].id) }
     }
 
+    /// Computes pairwise cosine similarity for embedding vectors.
+    ///
+    /// - Parameter embeddings: Embeddings to compare.
+    /// - Returns: Dense symmetric similarity matrix.
+    /// - Throws: ``ContextCoreError/dimensionMismatch(expected:got:)`` for inconsistent dimensions.
     public func pairwiseSimilarity(
         embeddings: [[Float]]
     ) async throws -> [[Float]] {
@@ -169,6 +194,15 @@ public actor ConsolidationEngine {
         return matrix
     }
 
+    /// Runs a full consolidation pass for the active session.
+    ///
+    /// - Parameters:
+    ///   - session: Session identifier used for bookkeeping.
+    ///   - episodicStore: Episodic memory store.
+    ///   - semanticStore: Semantic memory store.
+    ///   - threshold: Duplicate similarity threshold.
+    /// - Returns: Consolidation summary.
+    /// - Throws: Store, dimension, and Metal execution errors.
     public func consolidate(
         session _: UUID,
         episodicStore: any ConsolidationEpisodicStore,
@@ -227,6 +261,14 @@ public actor ConsolidationEngine {
         )
     }
 
+    /// Finds contradiction candidates from semantic memory.
+    ///
+    /// - Parameters:
+    ///   - store: Semantic store to scan.
+    ///   - similarityThreshold: Lower bound for pair similarity.
+    ///   - antipodalThreshold: Lower bound for sign-flip fraction.
+    /// - Returns: Candidate contradictory fact pairs.
+    /// - Throws: Pairwise similarity or antipodal computation errors.
     public func contradictionCandidates(
         in store: any ConsolidationSemanticStore,
         similarityThreshold: Float = 0.75,
@@ -278,6 +320,13 @@ public actor ConsolidationEngine {
         return matches
     }
 
+    /// Computes antipodal fractions for embedding pairs.
+    ///
+    /// - Parameters:
+    ///   - embeddingsA: First embedding list.
+    ///   - embeddingsB: Second embedding list.
+    /// - Returns: Sign-flip fractions per pair.
+    /// - Throws: ``ContextCoreError/dimensionMismatch(expected:got:)`` for inconsistent dimensions.
     public func antipodalFractions(
         embeddingsA: [[Float]],
         embeddingsB: [[Float]]
@@ -631,6 +680,7 @@ public actor ConsolidationEngine {
     }
 }
 
+/// Background trigger that schedules consolidation after insertion thresholds.
 public actor ConsolidationScheduler {
     private let engine: ConsolidationEngine
     private let countThreshold: Int
@@ -642,6 +692,13 @@ public actor ConsolidationScheduler {
     private var triggerCountValue = 0
     private var lastResultValue: ConsolidationResult?
 
+    /// Creates a consolidation scheduler.
+    ///
+    /// - Parameters:
+    ///   - engine: Consolidation engine to run.
+    ///   - countThreshold: Episodic count trigger threshold.
+    ///   - insertionThreshold: Insertion count trigger threshold.
+    ///   - similarityThreshold: Duplicate similarity threshold for scheduled runs.
     public init(
         engine: ConsolidationEngine,
         countThreshold: Int = 200,
@@ -654,6 +711,13 @@ public actor ConsolidationScheduler {
         self.similarityThreshold = similarityThreshold
     }
 
+    /// Notifies scheduler that an insertion occurred and may trigger consolidation.
+    ///
+    /// - Parameters:
+    ///   - episodicCount: Current episodic chunk count.
+    ///   - session: Active session identifier.
+    ///   - episodicStore: Episodic store.
+    ///   - semanticStore: Semantic store.
     public func notifyInsertion(
         episodicCount: Int,
         session: UUID,
@@ -688,14 +752,17 @@ public actor ConsolidationScheduler {
         }
     }
 
+    /// Number of consolidation triggers issued.
     public func triggerCount() -> Int {
         triggerCountValue
     }
 
+    /// Indicates whether a background consolidation task is running.
     public func isRunning() -> Bool {
         isConsolidating
     }
 
+    /// Latest successful consolidation result.
     public func lastResult() -> ConsolidationResult? {
         lastResultValue
     }

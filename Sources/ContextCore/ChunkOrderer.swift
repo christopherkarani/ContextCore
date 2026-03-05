@@ -1,14 +1,26 @@
 import Foundation
 
+/// Ordering policies for arranging context chunks.
 public enum OrderingStrategy: Sendable {
+    /// Group by source type and place guaranteed recent turns last.
     case typeGrouped
+    /// Order by ascending relevance score.
     case relevanceAscending
+    /// Order by timestamp ascending.
     case chronological
 }
 
+/// Orders chunks after packing to optimize downstream model attention.
 public struct ChunkOrderer: Sendable {
+    /// Creates a chunk orderer.
     public init() {}
 
+    /// Orders chunks using a selected strategy.
+    ///
+    /// - Parameters:
+    ///   - chunks: Packed chunks to arrange.
+    ///   - strategy: Ordering strategy to apply.
+    /// - Returns: Reordered chunks.
     public func order(
         _ chunks: [ContextChunk],
         strategy: OrderingStrategy = .typeGrouped

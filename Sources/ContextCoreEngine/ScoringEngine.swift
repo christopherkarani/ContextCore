@@ -2,6 +2,7 @@ import ContextCoreTypes
 import Foundation
 import Metal
 
+/// GPU-backed relevance and recency scoring engine.
 public actor ScoringEngine {
     private let device: MTLDevice
     private let commandQueue: MTLCommandQueue
@@ -9,6 +10,10 @@ public actor ScoringEngine {
     private let topkPipeline: MTLComputePipelineState
     private let recencyPipeline: MTLComputePipelineState
 
+    /// Creates a scoring engine and compiles required Metal pipelines.
+    ///
+    /// - Parameter device: Optional Metal device override.
+    /// - Throws: ``ContextCoreError/metalDeviceUnavailable`` or pipeline creation failures.
     public init(device: MTLDevice? = nil) throws {
         self.device = try device ?? MetalContext.device()
         self.commandQueue = try MetalContext.commandQueue(device: self.device)
@@ -32,6 +37,16 @@ public actor ScoringEngine {
         self.recencyPipeline = try self.device.makeComputePipelineState(function: recencyFunction)
     }
 
+    /// Scores candidate chunks against a query vector.
+    ///
+    /// - Parameters:
+    ///   - query: Query embedding.
+    ///   - chunks: Candidate chunks.
+    ///   - recencyWeights: Per-chunk recency weights.
+    ///   - relevanceWeight: Similarity contribution.
+    ///   - recencyWeight: Recency contribution.
+    /// - Returns: Scored chunks sorted by descending score.
+    /// - Throws: ``ContextCoreError/dimensionMismatch(expected:got:)`` for inconsistent dimensions.
     public func scoreChunks(
         query: [Float],
         chunks: [MemoryChunk],
@@ -67,6 +82,13 @@ public actor ScoringEngine {
             .sorted(by: { $0.score > $1.score })
     }
 
+    /// Returns indices of top-k values from a score vector using GPU selection.
+    ///
+    /// - Parameters:
+    ///   - scores: Score values.
+    ///   - k: Number of indices to return.
+    /// - Returns: Top-k score indices.
+    /// - Throws: Buffer and command construction failures.
     public func topKIndices(
         scores: [Float],
         k: Int
@@ -115,6 +137,14 @@ public actor ScoringEngine {
         return indexStorage.map(Int.init)
     }
 
+    /// Computes exponential recency weights using a half-life decay function.
+    ///
+    /// - Parameters:
+    ///   - timestamps: Source timestamps.
+    ///   - halfLife: Half-life duration in seconds.
+    ///   - currentTime: Reference time for decay calculation.
+    /// - Returns: Recency weights in `[0, 1]`.
+    /// - Throws: ``ContextCoreError/compressionFailed(_:)`` when `halfLife <= 0` or buffer setup fails.
     public func computeRecencyWeights(
         timestamps: [Date],
         halfLife: TimeInterval,

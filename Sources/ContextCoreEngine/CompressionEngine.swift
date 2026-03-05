@@ -3,6 +3,7 @@ import Foundation
 import Metal
 import NaturalLanguage
 
+/// GPU-assisted compression engine for ranking and reducing text chunks.
 public actor CompressionEngine {
     private let device: MTLDevice
     private let commandQueue: MTLCommandQueue
@@ -11,6 +12,14 @@ public actor CompressionEngine {
     private let tokenCounter: any TokenCounter
     private var compressionDelegate: (any CompressionDelegate)?
 
+    /// Creates a compression engine.
+    ///
+    /// - Parameters:
+    ///   - device: Optional Metal device override.
+    ///   - embeddingProvider: Embedding backend used for sentence and chunk embeddings.
+    ///   - tokenCounter: Token counter used for budget targets.
+    ///   - compressionDelegate: Optional delegate for custom compression behavior.
+    /// - Throws: Metal initialization or pipeline creation failures.
     public init(
         device: MTLDevice? = nil,
         embeddingProvider: any EmbeddingProvider,
@@ -31,6 +40,13 @@ public actor CompressionEngine {
         self.sentenceImportancePipeline = try self.device.makeComputePipelineState(function: function)
     }
 
+    /// Ranks sentences in a chunk by semantic importance to the chunk embedding.
+    ///
+    /// - Parameters:
+    ///   - chunk: Input text chunk.
+    ///   - chunkEmbedding: Embedding for the full chunk.
+    /// - Returns: Sentences sorted by descending importance.
+    /// - Throws: Embedding and dimension mismatch errors.
     public func rankSentences(
         in chunk: String,
         chunkEmbedding: [Float]
@@ -95,6 +111,13 @@ public actor CompressionEngine {
             .sorted(by: { $0.importance > $1.importance })
     }
 
+    /// Compresses a memory chunk to a target token budget.
+    ///
+    /// - Parameters:
+    ///   - chunk: Source chunk.
+    ///   - targetTokens: Desired token cap.
+    /// - Returns: Compressed chunk with refreshed embedding and metadata.
+    /// - Throws: Delegate compression or embedding failures.
     public func compress(
         chunk: MemoryChunk,
         targetTokens: Int
@@ -118,6 +141,13 @@ public actor CompressionEngine {
         return compressed
     }
 
+    /// Compresses a turn to a target token budget.
+    ///
+    /// - Parameters:
+    ///   - turn: Source turn.
+    ///   - targetTokens: Desired token cap.
+    /// - Returns: Compressed turn preserving identity fields.
+    /// - Throws: Delegate compression or embedding failures.
     public func compressTurn(
         turn: Turn,
         targetTokens: Int
@@ -148,6 +178,9 @@ public actor CompressionEngine {
         )
     }
 
+    /// Replaces the active compression delegate.
+    ///
+    /// - Parameter delegate: New delegate implementation.
     public func setCompressionDelegate(_ delegate: any CompressionDelegate) {
         compressionDelegate = delegate
     }

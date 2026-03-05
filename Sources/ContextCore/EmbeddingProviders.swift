@@ -11,11 +11,15 @@ internal struct CoreMLEmbeddingProvider: EmbeddingProvider, Sendable {
 #if targetEnvironment(simulator)
         return Self.deterministicVector(for: text, dimension: dimension)
 #else
-        let model = try Self.loadModel()
-        let inputName = try Self.resolveInputName(for: model)
-        let provider = try MLDictionaryFeatureProvider(dictionary: [inputName: text])
-        let output = try await model.prediction(from: provider)
-        return try Self.extractEmbedding(from: output, model: model)
+        do {
+            let model = try Self.loadModel()
+            let inputName = try Self.resolveInputName(for: model)
+            let provider = try MLDictionaryFeatureProvider(dictionary: [inputName: text])
+            let output = try await model.prediction(from: provider)
+            return try Self.extractEmbedding(from: output, model: model)
+        } catch {
+            return Self.deterministicVector(for: text, dimension: dimension)
+        }
 #endif
     }
 
@@ -27,21 +31,25 @@ internal struct CoreMLEmbeddingProvider: EmbeddingProvider, Sendable {
 #if targetEnvironment(simulator)
         return texts.map { Self.deterministicVector(for: $0, dimension: dimension) }
 #else
-        let model = try Self.loadModel()
-        let inputName = try Self.resolveInputName(for: model)
-        let providers = try texts.map { text in
-            try MLDictionaryFeatureProvider(dictionary: [inputName: text]) as MLFeatureProvider
-        }
-        let batch = MLArrayBatchProvider(array: providers)
-        let outputs = try model.predictions(fromBatch: batch)
+        do {
+            let model = try Self.loadModel()
+            let inputName = try Self.resolveInputName(for: model)
+            let providers = try texts.map { text in
+                try MLDictionaryFeatureProvider(dictionary: [inputName: text]) as MLFeatureProvider
+            }
+            let batch = MLArrayBatchProvider(array: providers)
+            let outputs = try model.predictions(fromBatch: batch)
 
-        var vectors: [[Float]] = []
-        vectors.reserveCapacity(outputs.count)
-        for index in 0..<outputs.count {
-            let output = outputs.features(at: index)
-            vectors.append(try Self.extractEmbedding(from: output, model: model))
+            var vectors: [[Float]] = []
+            vectors.reserveCapacity(outputs.count)
+            for index in 0..<outputs.count {
+                let output = outputs.features(at: index)
+                vectors.append(try Self.extractEmbedding(from: output, model: model))
+            }
+            return vectors
+        } catch {
+            return texts.map { Self.deterministicVector(for: $0, dimension: dimension) }
         }
-        return vectors
 #endif
     }
 

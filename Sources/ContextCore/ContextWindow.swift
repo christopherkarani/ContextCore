@@ -1,35 +1,70 @@
 import Foundation
 
+/// Compression intensity applied to a context chunk.
 public enum CompressionLevel: Int, Codable, Sendable, Hashable, Comparable {
+    /// No compression was applied.
     case none = 0
+    /// Mild compression preserving most content.
     case light = 1
+    /// Aggressive compression preserving only high-signal content.
     case heavy = 2
+    /// Chunk was dropped to satisfy budget constraints.
     case dropped = 3
 
+    /// Compares compression levels by intensity.
     public static func < (lhs: CompressionLevel, rhs: CompressionLevel) -> Bool {
         lhs.rawValue < rhs.rawValue
     }
 }
 
+/// Formatting styles for serializing a ``ContextWindow``.
 public enum FormatStyle: Sendable {
+    /// Concatenates chunk text as raw paragraphs.
     case raw
+    /// Emits ChatML tags.
     case chatML
+    /// Emits Alpaca-style instruction blocks.
     case alpaca
+    /// Uses a custom per-chunk template containing `{role}` and `{content}` tokens.
     case custom(template: String)
 }
 
+/// A single chunk included in the final context window.
 public struct ContextChunk: Identifiable, Codable, Sendable, Hashable {
+    /// Stable identifier for this chunk.
     public let id: UUID
+    /// Chunk content as injected into the model prompt.
     public let content: String
+    /// Role label for formatting.
     public let role: TurnRole
+    /// Token count used for budget accounting.
     public let tokenCount: Int
+    /// Relevance score assigned during ranking.
     public let score: Float
+    /// Memory tier that produced this chunk.
     public let source: MemoryType
+    /// Compression level applied before packing.
     public var compressionLevel: CompressionLevel
+    /// Source timestamp used for ordering.
     public let timestamp: Date
+    /// Indicates chunk is guaranteed by recency policy.
     public let isGuaranteedRecent: Bool
+    /// Indicates chunk is the active system prompt.
     public let isSystemPrompt: Bool
 
+    /// Creates a context chunk.
+    ///
+    /// - Parameters:
+    ///   - id: Chunk identifier.
+    ///   - content: Prompt text.
+    ///   - role: Formatting role.
+    ///   - tokenCount: Token count estimate.
+    ///   - score: Ranking score.
+    ///   - source: Memory source.
+    ///   - compressionLevel: Applied compression level.
+    ///   - timestamp: Source timestamp.
+    ///   - isGuaranteedRecent: `true` for guaranteed recent turns.
+    ///   - isSystemPrompt: `true` for system prompt chunk.
     public init(
         id: UUID = UUID(),
         content: String,
@@ -55,14 +90,26 @@ public struct ContextChunk: Identifiable, Codable, Sendable, Hashable {
     }
 }
 
+/// Final packed context sent to the model.
 public struct ContextWindow: Codable, Sendable, Hashable {
+    /// Ordered chunks included in the window.
     public let chunks: [ContextChunk]
+    /// Total tokens consumed by `chunks`.
     public let totalTokens: Int
+    /// Fraction of budget consumed in `[0, 1]`.
     public let budgetUsed: Float
+    /// Effective token budget for this window.
     public let budget: Int
+    /// Number of chunks retrieved from episodic or semantic memory.
     public let retrievedFromMemory: Int
+    /// Number of chunks that were compressed.
     public let compressedChunks: Int
 
+    /// Creates a context window from packed chunks.
+    ///
+    /// - Parameters:
+    ///   - chunks: Packed chunks in final order.
+    ///   - budget: Effective token budget.
     public init(chunks: [ContextChunk], budget: Int) {
         self.chunks = chunks
         self.budget = budget
@@ -93,6 +140,10 @@ public struct ContextWindow: Codable, Sendable, Hashable {
         }
     }
 
+    /// Serializes the window for model injection.
+    ///
+    /// - Parameter style: Output formatting style.
+    /// - Returns: Formatted prompt string.
     public func formatted(style: FormatStyle) -> String {
         switch style {
         case .raw:

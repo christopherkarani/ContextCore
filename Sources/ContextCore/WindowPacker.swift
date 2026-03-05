@@ -9,6 +9,7 @@ protocol SentenceRanker: Sendable {
 
 extension CompressionEngine: SentenceRanker {}
 
+/// Packs system prompt, recent turns, and ranked memory into a token budget.
 public actor WindowPacker {
     private let sentenceRanker: any SentenceRanker
     private let tokenCounter: any TokenCounter
@@ -16,6 +17,13 @@ public actor WindowPacker {
     private let recentTurnsGuaranteed: Int
     private let progressiveCompressor: ProgressiveCompressor?
 
+    /// Creates a production window packer.
+    ///
+    /// - Parameters:
+    ///   - compressionEngine: Compression engine used for sentence ranking and fallback compression.
+    ///   - tokenCounter: Token counter used for budget accounting.
+    ///   - minimumChunkSize: Remaining budget threshold below which packing stops.
+    ///   - recentTurnsGuaranteed: Number of latest turns that must always be included.
     public init(
         compressionEngine: CompressionEngine,
         tokenCounter: any TokenCounter,
@@ -46,6 +54,17 @@ public actor WindowPacker {
         self.progressiveCompressor = progressiveCompressor
     }
 
+    /// Packs context candidates into a budget-constrained ``ContextWindow``.
+    ///
+    /// - Parameters:
+    ///   - systemPrompt: Optional system instruction to pin at the top.
+    ///   - recentTurns: Turn buffer eligible for guaranteed inclusion.
+    ///   - scoredMemory: Ranked memory candidates.
+    ///   - budget: Effective token budget.
+    /// - Returns: Packed context window.
+    /// - Throws: Propagates compression and embedding errors from dependencies.
+    ///
+    /// - Complexity: O(n log n) for candidate sorting plus optional compression work.
     public func pack(
         systemPrompt: String?,
         recentTurns: [Turn],

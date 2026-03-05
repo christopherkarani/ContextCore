@@ -1,13 +1,29 @@
 import Foundation
 
+/// Compression outcome for a single candidate chunk.
 public struct ProgressiveCompressionResult: Sendable {
+    /// Original uncompressed chunk.
     public let originalChunk: MemoryChunk
+    /// Compressed content when retained; `nil` when dropped.
     public let compressedContent: String?
+    /// Compression level applied.
     public let compressionLevel: CompressionLevel
+    /// Original token count.
     public let originalTokens: Int
+    /// Token count after compression.
     public let compressedTokens: Int
+    /// Tokens removed by compression or dropping.
     public let tokensSaved: Int
 
+    /// Creates a progressive compression result.
+    ///
+    /// - Parameters:
+    ///   - originalChunk: Source chunk.
+    ///   - compressedContent: Compressed content or `nil` when dropped.
+    ///   - compressionLevel: Applied compression level.
+    ///   - originalTokens: Original token count.
+    ///   - compressedTokens: Compressed token count.
+    ///   - tokensSaved: Tokens removed.
     public init(
         originalChunk: MemoryChunk,
         compressedContent: String?,
@@ -24,6 +40,12 @@ public struct ProgressiveCompressionResult: Sendable {
         self.tokensSaved = tokensSaved
     }
 
+    /// Converts the result into a context chunk when retained.
+    ///
+    /// - Parameters:
+    ///   - score: Score assigned to this candidate.
+    ///   - source: Memory source for the resulting context chunk.
+    /// - Returns: A context chunk or `nil` when compression level is `.dropped`.
     public func toContextChunk(score: Float, source: MemoryType) -> ContextChunk? {
         guard compressionLevel != .dropped else {
             return nil
@@ -45,10 +67,16 @@ public struct ProgressiveCompressionResult: Sendable {
     }
 }
 
+/// Applies progressive, score-aware compression to satisfy budget deficits.
 public actor ProgressiveCompressor {
     private let compressionEngine: CompressionEngine
     private let tokenCounter: any TokenCounter
 
+    /// Creates a progressive compressor.
+    ///
+    /// - Parameters:
+    ///   - compressionEngine: Engine used for light/heavy compression passes.
+    ///   - tokenCounter: Token counter used for deficit accounting.
     public init(
         compressionEngine: CompressionEngine,
         tokenCounter: any TokenCounter
@@ -57,6 +85,13 @@ public actor ProgressiveCompressor {
         self.tokenCounter = tokenCounter
     }
 
+    /// Progressively compresses low-priority candidates until deficit is recovered.
+    ///
+    /// - Parameters:
+    ///   - candidates: Candidates ordered by eviction preference.
+    ///   - tokenDeficit: Number of tokens that must be removed.
+    /// - Returns: Compression outcomes aligned with input order.
+    /// - Throws: Propagates compression-engine failures.
     public func compress(
         candidates: [(chunk: MemoryChunk, evictionScore: Float)],
         tokenDeficit: Int

@@ -2,12 +2,17 @@ import ContextCoreTypes
 import Foundation
 import Metal
 
+/// GPU-backed attention centrality and eviction scoring engine.
 public actor AttentionEngine {
     private let device: MTLDevice
     private let commandQueue: MTLCommandQueue
     private let centralityPipeline: MTLComputePipelineState
     private let crossAttentionPipeline: MTLComputePipelineState
 
+    /// Creates an attention engine and compiles required Metal pipelines.
+    ///
+    /// - Parameter device: Optional Metal device override.
+    /// - Throws: ``ContextCoreError/metalDeviceUnavailable`` or pipeline creation failures.
     public init(device: MTLDevice? = nil) throws {
         self.device = try device ?? MetalContext.device()
         self.commandQueue = try MetalContext.commandQueue(device: self.device)
@@ -26,6 +31,11 @@ public actor AttentionEngine {
         self.crossAttentionPipeline = try self.device.makeComputePipelineState(function: crossAttentionFunction)
     }
 
+    /// Computes centrality for each embedding within a candidate set.
+    ///
+    /// - Parameter embeddings: Candidate embeddings.
+    /// - Returns: Centrality score for each embedding.
+    /// - Throws: ``ContextCoreError/dimensionMismatch(expected:got:)`` for inconsistent dimensions.
     public func computeCentrality(
         embeddings: [[Float]]
     ) async throws -> [Float] {
@@ -82,6 +92,15 @@ public actor AttentionEngine {
         return output
     }
 
+    /// Produces eviction scores by combining relevance and centrality.
+    ///
+    /// - Parameters:
+    ///   - taskQuery: Query embedding.
+    ///   - windowChunks: Candidate chunks already in the window.
+    ///   - relevanceWeight: Relevance contribution.
+    ///   - centralityWeight: Centrality contribution.
+    /// - Returns: Chunks sorted by ascending eviction score (lowest first).
+    /// - Throws: ``ContextCoreError/dimensionMismatch(expected:got:)`` for inconsistent dimensions.
     public func scoreWindowForEviction(
         taskQuery: [Float],
         windowChunks: [MemoryChunk],

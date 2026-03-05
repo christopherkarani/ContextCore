@@ -2,7 +2,9 @@ import Accelerate
 import ContextCoreTypes
 import Foundation
 
+/// CPU reference implementations for parity checks and benchmarking.
 public enum CPUReference {
+    /// Computes combined relevance and recency scores on CPU.
     public static func relevanceScores(
         query: [Float],
         chunks: [[Float]],
@@ -40,6 +42,7 @@ public enum CPUReference {
         }
     }
 
+    /// Computes exponential recency weights with half-life decay.
     public static func recencyWeights(
         timestamps: [Date],
         currentTime: Date,
@@ -66,6 +69,7 @@ public enum CPUReference {
         return values.map { min(max($0, 0), 1) }
     }
 
+    /// Computes mean pairwise similarity centrality per embedding.
     public static func centrality(embeddings: [[Float]]) -> [Float] {
         guard !embeddings.isEmpty else {
             return []
@@ -85,6 +89,7 @@ public enum CPUReference {
         }
     }
 
+    /// Combines relevance and centrality into cross-attention scores.
     public static func crossAttentionScores(
         query: [Float],
         embeddings: [[Float]],
@@ -103,6 +108,7 @@ public enum CPUReference {
         }
     }
 
+    /// Computes sentence importance against a chunk embedding.
     public static func sentenceImportance(
         sentenceEmbeddings: [[Float]],
         chunkEmbedding: [Float]
@@ -112,6 +118,7 @@ public enum CPUReference {
         }
     }
 
+    /// Computes a dense pairwise cosine-similarity matrix.
     public static func pairwiseSimilarity(embeddings: [[Float]]) -> [[Float]] {
         guard !embeddings.isEmpty else {
             return []
@@ -137,6 +144,7 @@ public enum CPUReference {
         return matrix
     }
 
+    /// Finds merge-candidate index pairs above a threshold.
     public static func findMergeCandidates(
         similarities: [[Float]],
         threshold: Float
@@ -157,6 +165,7 @@ public enum CPUReference {
         return pairs
     }
 
+    /// Computes the sign-flip fraction between two vectors.
     public static func antipodalFraction(_ a: [Float], _ b: [Float]) -> Float {
         precondition(a.count == b.count, "Vectors must match dimensions")
         guard !a.isEmpty else {

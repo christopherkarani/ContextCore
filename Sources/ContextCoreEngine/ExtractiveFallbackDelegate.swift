@@ -2,10 +2,16 @@ import ContextCoreTypes
 import Foundation
 import NaturalLanguage
 
+/// Default extractive compression delegate used when no custom delegate is provided.
 public actor ExtractiveFallbackDelegate: CompressionDelegate {
     private let compressionEngine: CompressionEngine
     private let tokenCounter: any TokenCounter
 
+    /// Creates an extractive fallback delegate.
+    ///
+    /// - Parameters:
+    ///   - compressionEngine: Compression engine used for sentence ranking.
+    ///   - tokenCounter: Token counter used for budget checks.
     public init(
         compressionEngine: CompressionEngine,
         tokenCounter: any TokenCounter
@@ -14,6 +20,13 @@ public actor ExtractiveFallbackDelegate: CompressionDelegate {
         self.tokenCounter = tokenCounter
     }
 
+    /// Compresses text by selecting high-importance sentences within `targetTokens`.
+    ///
+    /// - Parameters:
+    ///   - text: Source text.
+    ///   - targetTokens: Token budget ceiling.
+    /// - Returns: Extractively compressed text.
+    /// - Throws: Sentence ranking failures from the compression engine.
     public func compress(_ text: String, targetTokens: Int) async throws -> String {
         let currentTokens = tokenCounter.count(text)
         if currentTokens <= targetTokens {
@@ -74,6 +87,10 @@ public actor ExtractiveFallbackDelegate: CompressionDelegate {
         return selected.map(\.sentence).joined(separator: " ")
     }
 
+    /// Extracts sentence-level factual statements from text.
+    ///
+    /// - Parameter text: Source text.
+    /// - Returns: Trimmed sentence facts.
     public func extractFacts(from text: String) async throws -> [String] {
         let tokenizer = NLTokenizer(unit: .sentence)
         tokenizer.string = text

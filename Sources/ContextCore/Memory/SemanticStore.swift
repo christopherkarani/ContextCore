@@ -1,12 +1,16 @@
 import Foundation
 import MetalANNS
 
+/// Vector-backed semantic memory store for durable facts.
 public actor SemanticStore: ConsolidationSemanticStore {
     private let index: Advanced.StreamingIndex
     private var chunksByID: [String: MemoryChunk] = [:]
     private let sourceSessionID: UUID
     private var embeddingDimension: Int?
 
+    /// Creates a semantic store for a source session.
+    ///
+    /// - Parameter sourceSessionID: Session identifier attached to inserted chunks.
     public init(sourceSessionID: UUID = UUID()) {
         self.sourceSessionID = sourceSessionID
         let config = StreamingConfiguration(
@@ -17,10 +21,18 @@ public actor SemanticStore: ConsolidationSemanticStore {
         self.index = Advanced.StreamingIndex(config: config)
     }
 
+    /// Number of semantic chunks currently stored.
     public var count: Int {
         chunksByID.count
     }
 
+    /// Inserts a semantic chunk from raw content and embedding.
+    ///
+    /// - Parameters:
+    ///   - content: Fact content.
+    ///   - embedding: Fact embedding.
+    ///   - metadata: Optional metadata.
+    /// - Throws: `ContextCoreError.dimensionMismatch` for inconsistent dimensions.
     public func insert(
         content: String,
         embedding: [Float],
@@ -45,6 +57,24 @@ public actor SemanticStore: ConsolidationSemanticStore {
         chunksByID[chunkID] = chunk
     }
 
+    /// Inserts a pre-built semantic chunk.
+    ///
+    /// - Parameter chunk: Chunk to insert.
+    /// - Throws: `ContextCoreError.dimensionMismatch` for inconsistent dimensions.
+    public func insert(chunk: MemoryChunk) async throws {
+        try validateDimension(chunk.embedding)
+        let chunkID = chunk.id.uuidString
+        try await index.insert(chunk.embedding, id: chunkID)
+        chunksByID[chunkID] = chunk
+    }
+
+    /// Retrieves nearest semantic chunks for a query vector.
+    ///
+    /// - Parameters:
+    ///   - query: Query embedding.
+    ///   - k: Maximum number of chunks to return.
+    /// - Returns: Retrieved chunks ordered by ANN distance.
+    /// - Throws: `ContextCoreError.dimensionMismatch` for inconsistent dimensions.
     public func retrieve(query: [Float], k: Int) async throws -> [MemoryChunk] {
         guard !chunksByID.isEmpty else {
             return []
@@ -67,6 +97,12 @@ public actor SemanticStore: ConsolidationSemanticStore {
         return retrieved
     }
 
+    /// Upserts a semantic fact using cosine similarity deduplication.
+    ///
+    /// - Parameters:
+    ///   - fact: Fact string to retain.
+    ///   - embedding: Fact embedding.
+    /// - Throws: `ContextCoreError.dimensionMismatch` for inconsistent dimensions.
     public func upsert(fact: String, embedding: [Float]) async throws {
         try validateDimension(embedding)
 
@@ -86,6 +122,7 @@ public actor SemanticStore: ConsolidationSemanticStore {
         )
     }
 
+    /// Returns all semantic chunks sorted by creation time.
     public func allChunks() async -> [MemoryChunk] {
         chunksByID.values.sorted { lhs, rhs in
             if lhs.createdAt != rhs.createdAt {
@@ -93,6 +130,22 @@ public actor SemanticStore: ConsolidationSemanticStore {
             }
             return lhs.id.uuidString < rhs.id.uuidString
         }
+    }
+
+    /// Applies a retention score delta to a semantic chunk.
+    ///
+    /// - Parameters:
+    ///   - id: Chunk identifier.
+    ///   - delta: Signed score delta.
+    /// - Throws: `ContextCoreError.chunkNotFound` if no chunk exists.
+    public func updateRetentionScore(id: UUID, delta: Float) async throws {
+        let key = id.uuidString
+        guard var chunk = chunksByID[key] else {
+            throw ContextCoreError.chunkNotFound(id: id)
+        }
+        let updated = max(0, min(1, chunk.retentionScore + delta))
+        chunk.retentionScore = updated
+        chunksByID[key] = chunk
     }
 
     private func validateDimension(_ embedding: [Float]) throws {
