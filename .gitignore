@@ -11,3 +11,8 @@ Branch *.docx
 tasks/
 prompts/
 Packages/
+
+# Docusaurus
+docs-site/node_modules/
+docs-site/build/
+docs-site/.docusaurus/
