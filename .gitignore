@@ -4,3 +4,10 @@
 Package.resolved
 DerivedData/
 .wax_session_store
+RELEASE_NOTES*.md
+RELEASE_CHECKLIST.md
+PERF_NOTES.md
+Branch *.docx
+tasks/
+prompts/
+Packages/
