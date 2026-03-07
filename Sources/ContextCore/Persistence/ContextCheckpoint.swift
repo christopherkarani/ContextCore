@@ -26,6 +26,12 @@ public struct ContextCheckpoint: Codable, Sendable {
         public let relevanceWeight: Float
         /// Persisted `centralityWeight`.
         public let centralityWeight: Float
+        /// Persisted `minimumRetentionScore`.
+        public let minimumRetentionScore: Float
+        /// Persisted `maxCheckpointBytes`.
+        public let maxCheckpointBytes: Int
+        /// Persisted `maxEmbeddingTextLength`.
+        public let maxEmbeddingTextLength: Int
         /// Persisted `efSearch`.
         public let efSearch: Int
 
@@ -44,7 +50,38 @@ public struct ContextCheckpoint: Codable, Sendable {
             self.similarityMergeThreshold = configuration.similarityMergeThreshold
             self.relevanceWeight = configuration.relevanceWeight
             self.centralityWeight = configuration.centralityWeight
+            self.minimumRetentionScore = configuration.minimumRetentionScore
+            self.maxCheckpointBytes = configuration.maxCheckpointBytes
+            self.maxEmbeddingTextLength = configuration.maxEmbeddingTextLength
             self.efSearch = configuration.efSearch
+        }
+
+        // Provide defaults for fields added after schema version 1.
+        enum CodingKeys: String, CodingKey {
+            case maxTokens, tokenBudgetSafetyMargin, episodicMemoryK, semanticMemoryK
+            case recentTurnsGuaranteed, episodicHalfLifeDays, semanticHalfLifeDays
+            case consolidationThreshold, similarityMergeThreshold, relevanceWeight
+            case centralityWeight, minimumRetentionScore, maxCheckpointBytes
+            case maxEmbeddingTextLength, efSearch
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            maxTokens = try container.decode(Int.self, forKey: .maxTokens)
+            tokenBudgetSafetyMargin = try container.decode(Float.self, forKey: .tokenBudgetSafetyMargin)
+            episodicMemoryK = try container.decode(Int.self, forKey: .episodicMemoryK)
+            semanticMemoryK = try container.decode(Int.self, forKey: .semanticMemoryK)
+            recentTurnsGuaranteed = try container.decode(Int.self, forKey: .recentTurnsGuaranteed)
+            episodicHalfLifeDays = try container.decode(Double.self, forKey: .episodicHalfLifeDays)
+            semanticHalfLifeDays = try container.decode(Double.self, forKey: .semanticHalfLifeDays)
+            consolidationThreshold = try container.decode(Int.self, forKey: .consolidationThreshold)
+            similarityMergeThreshold = try container.decode(Float.self, forKey: .similarityMergeThreshold)
+            relevanceWeight = try container.decode(Float.self, forKey: .relevanceWeight)
+            centralityWeight = try container.decode(Float.self, forKey: .centralityWeight)
+            minimumRetentionScore = try container.decodeIfPresent(Float.self, forKey: .minimumRetentionScore) ?? 0.01
+            maxCheckpointBytes = try container.decodeIfPresent(Int.self, forKey: .maxCheckpointBytes) ?? 0
+            maxEmbeddingTextLength = try container.decodeIfPresent(Int.self, forKey: .maxEmbeddingTextLength) ?? 0
+            efSearch = try container.decode(Int.self, forKey: .efSearch)
         }
 
         /// Applies persisted scalar values onto a base configuration.
@@ -64,6 +101,9 @@ public struct ContextCheckpoint: Codable, Sendable {
                 similarityMergeThreshold: similarityMergeThreshold,
                 relevanceWeight: relevanceWeight,
                 centralityWeight: centralityWeight,
+                minimumRetentionScore: minimumRetentionScore,
+                maxCheckpointBytes: maxCheckpointBytes,
+                maxEmbeddingTextLength: maxEmbeddingTextLength,
                 efSearch: efSearch,
                 embeddingProvider: base.embeddingProvider,
                 tokenCounter: base.tokenCounter,
