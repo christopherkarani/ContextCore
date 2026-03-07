@@ -1,6 +1,9 @@
 import ContextCoreEngine
 import CoreML
 import Foundation
+import OSLog
+
+private let embeddingLogger = Logger(subsystem: "com.contextcore", category: "Embedding")
 
 internal struct CoreMLEmbeddingProvider: EmbeddingProvider, Sendable {
     internal let dimension: Int = 384
@@ -11,15 +14,11 @@ internal struct CoreMLEmbeddingProvider: EmbeddingProvider, Sendable {
 #if targetEnvironment(simulator)
         return Self.deterministicVector(for: text, dimension: dimension)
 #else
-        do {
-            let model = try Self.loadModel()
-            let inputName = try Self.resolveInputName(for: model)
-            let provider = try MLDictionaryFeatureProvider(dictionary: [inputName: text])
-            let output = try await model.prediction(from: provider)
-            return try Self.extractEmbedding(from: output, model: model)
-        } catch {
-            return Self.deterministicVector(for: text, dimension: dimension)
-        }
+        let model = try Self.loadModel()
+        let inputName = try Self.resolveInputName(for: model)
+        let provider = try MLDictionaryFeatureProvider(dictionary: [inputName: text])
+        let output = try await model.prediction(from: provider)
+        return try Self.extractEmbedding(from: output, model: model)
 #endif
     }
 
@@ -31,25 +30,21 @@ internal struct CoreMLEmbeddingProvider: EmbeddingProvider, Sendable {
 #if targetEnvironment(simulator)
         return texts.map { Self.deterministicVector(for: $0, dimension: dimension) }
 #else
-        do {
-            let model = try Self.loadModel()
-            let inputName = try Self.resolveInputName(for: model)
-            let providers = try texts.map { text in
-                try MLDictionaryFeatureProvider(dictionary: [inputName: text]) as MLFeatureProvider
-            }
-            let batch = MLArrayBatchProvider(array: providers)
-            let outputs = try model.predictions(fromBatch: batch)
-
-            var vectors: [[Float]] = []
-            vectors.reserveCapacity(outputs.count)
-            for index in 0..<outputs.count {
-                let output = outputs.features(at: index)
-                vectors.append(try Self.extractEmbedding(from: output, model: model))
-            }
-            return vectors
-        } catch {
-            return texts.map { Self.deterministicVector(for: $0, dimension: dimension) }
+        let model = try Self.loadModel()
+        let inputName = try Self.resolveInputName(for: model)
+        let providers = try texts.map { text in
+            try MLDictionaryFeatureProvider(dictionary: [inputName: text]) as MLFeatureProvider
         }
+        let batch = MLArrayBatchProvider(array: providers)
+        let outputs = try model.predictions(fromBatch: batch)
+
+        var vectors: [[Float]] = []
+        vectors.reserveCapacity(outputs.count)
+        for index in 0..<outputs.count {
+            let output = outputs.features(at: index)
+            vectors.append(try Self.extractEmbedding(from: output, model: model))
+        }
+        return vectors
 #endif
     }
 
