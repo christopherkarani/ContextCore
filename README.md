@@ -11,6 +11,7 @@
     <a href="https://developer.apple.com/ios/"><img src="https://img.shields.io/badge/iOS-17%2B-000000.svg?style=for-the-badge&logo=apple&logoColor=white" alt="iOS 17+"></a>
     <a href="https://developer.apple.com/macos/"><img src="https://img.shields.io/badge/macOS-14%2B-000000.svg?style=for-the-badge&logo=apple&logoColor=white" alt="macOS 14+"></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-000000.svg?style=for-the-badge" alt="MIT License"></a>
+    <a href="https://discord.gg/NHgNh7HJ6M"><img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fdiscord.com%2Fapi%2Fv10%2Finvites%2FNHgNh7HJ6M%3Fwith_counts%3Dtrue&query=%24.approximate_presence_count&suffix=%20online&logo=discord&label=Discord&color=5865F2&style=for-the-badge" alt="Discord" /></a>
   </p>
 </div>
 
