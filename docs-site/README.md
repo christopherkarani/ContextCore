@@ -14,7 +14,7 @@ yarn
 yarn start
 ```
 
-This command starts a local development server and opens up a browser window. Most changes are reflected live without having to restart the server.
+This starts a local dev server and opens a browser window. Most edits show up without a restart.
 
 ## Build
 
@@ -22,7 +22,7 @@ This command starts a local development server and opens up a browser window. Mo
 yarn build
 ```
 
-This command generates static content into the `build` directory and can be served using any static contents hosting service.
+This generates static content in the `build` directory so you can serve it from any static host.
 
 ## Deployment
 
@@ -38,4 +38,4 @@ Not using SSH:
 GIT_USER=<Your GitHub username> yarn deploy
 ```
 
-If you are using GitHub pages for hosting, this command is a convenient way to build the website and push to the `gh-pages` branch.
+If you host on GitHub Pages, this is the simplest way to build the site and push it to `gh-pages`.

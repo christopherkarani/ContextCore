@@ -1,10 +1,10 @@
-# ContextCore 🧠
+# ContextCore
 
 <div align="center">
   <img src="https://placehold.co/1200x300/000000/FFFFFF/png?text=%E2%9A%A1+ContextCore&font=montserrat" alt="ContextCore Banner" width="100%">
   <br>
-  <h1><b>Aura ⚡️ ContextCore</b></h1>
-  <h3><b>High-precision, low-latency memory scout for Apple Silicon.</b></h3>
+  <h1><b>ContextCore</b></h1>
+  <h3><b>GPU-accelerated context memory for on-device AI agents on Apple Silicon.</b></h3>
   
   <p>
     <a href="https://swift.org"><img src="https://img.shields.io/badge/Swift-6.2-000000.svg?style=for-the-badge&logo=swift&logoColor=white" alt="Swift 6.2"></a>
@@ -16,14 +16,14 @@
 
 ---
 
-## ⚡️ The Strong Elements
+## What it does
 
-*   **Metal-Accelerated Scoring:** Parallelized relevance & recency scoring using custom Metal shaders. Verified at **63.36M chunks/sec** and **2.45x GPU math speedup** on large workloads.
-*   **Four-Tier Memory:** Working, Episodic, Semantic, and Procedural memory tiers.
-*   **Progressive Compression:** Automatically applies light or heavy extractive compression to lower-signal chunks.
-*   **Sub-5ms Window Builds:** `buildWindow(500, 4096)` now measures **4.89ms p99** on the latest full release run.
-*   **Fast Background Consolidation:** `consolidate(2000)` now measures **15.61ms p99**.
-*   **Attention-Aware Reranking:** Re-orders context chunks based on attention centrality.
+*   **Metal-accelerated scoring:** custom Metal shaders handle relevance and recency scoring, with measured throughput at **63.36M chunks/sec** and **2.45x GPU math speedup** on large workloads.
+*   **Four memory tiers:** working, episodic, semantic, and procedural memory each have their own retrieval role.
+*   **Progressive compression:** lower-signal chunks can be compressed automatically when the token budget gets tight.
+*   **Fast window builds:** `buildWindow(500, 4096)` measures **4.89ms p99** on the latest full release run.
+*   **Background consolidation:** `consolidate(2000)` measures **15.61ms p99**.
+*   **Attention-aware reranking:** context chunks can be reordered by attention centrality.
 
 ## 🏗️ Architecture
 
@@ -66,14 +66,14 @@ flowchart TB
     style Model fill:#000,color:#fff
 ```
 
-## ⚖️ The ContextCore Advantage
+## Why ContextCore
 
 | Feature | ❌ Standard LLM Usage | ✅ With ContextCore |
 | :--- | :--- | :--- |
-| **Recall** | Forgets early conversation turns as context fills. | **Perfect Recall**: Retrieves relevant turns from days ago using semantic search. |
-| **Speed** | Slows down linearly as context grows. | **GPU-Tuned**: Window building stays under **5ms p99**, consolidation stays under **16ms p99**, and GPU math reaches **2.45x** CPU speedup at scale. |
-| **Cost** | Wastes tokens re-sending irrelevant history. | **Cost Efficient**: Packs only high-value tokens; compresses the rest. |
-| **Coherence** | Loses track of long-running tasks. | **Goal Oriented**: "Procedural Memory" tracks tool usage and task patterns. |
+| **Recall** | Forgets early conversation turns as context fills. | Retrieves relevant turns from earlier in the thread with semantic search. |
+| **Speed** | Slows down linearly as context grows. | Window building stays under **5ms p99** and consolidation stays under **16ms p99** on the measured M2 run. |
+| **Cost** | Wastes tokens by re-sending irrelevant history. | Packs higher-value tokens first and compresses the rest. |
+| **Coherence** | Loses track of long-running tasks. | Procedural memory tracks tool usage and task patterns. |
 
 ## 📊 Performance
 
@@ -108,7 +108,7 @@ xychart-beta
 ```swift
 import ContextCore
 
-// 1. Initialize Aura
+// 1. Initialize ContextCore
 let context = try AgentContext()
 
 // 2. Start a session
@@ -117,7 +117,7 @@ try await context.beginSession(systemPrompt: "You are a senior Swift engineer.")
 // 3. Append turns
 try await context.append(turn: Turn(role: .user, content: "How do I fix this actor leak?"))
 
-// 4. Build a packed window (Metal-accelerated)
+// 4. Build a packed window
 let window = try await context.buildWindow(
     currentTask: "Debug actor isolation",
     maxTokens: 4096
@@ -135,5 +135,6 @@ dependencies: [
 ]
 ```
 
-## 📜 License
+## License
+
 ContextCore is available under the MIT license. See [LICENSE](LICENSE) for details.
