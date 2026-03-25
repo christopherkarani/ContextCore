@@ -132,7 +132,7 @@ let prompt = window.formatted(style: .chatML)
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/christopherkarani/ContextCore.git", from: "1.0.0")
+    .package(url: "https://github.com/christopherkarani/ContextCore.git", from: "0.1.0")
 ]
 ```
 
