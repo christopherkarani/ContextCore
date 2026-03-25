@@ -1,0 +1,1 @@
+"use strict";(globalThis.webpackChunkdocs_site=globalThis.webpackChunkdocs_site||[]).push([[5154],{4168(h){h.exports=JSON.parse('{"authors":[{"name":"Christopher Karani","url":"https://github.com/christopherkarani","socials":{"github":"https://github.com/christopherkarani"},"imageURL":"https://github.com/christopherkarani.png","key":"chriskarani","page":null,"count":2}]}')}}]);

@@ -1,1 +1,0 @@
-// Placeholder shader resource for Phase 1.

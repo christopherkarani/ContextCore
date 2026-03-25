@@ -1,0 +1,1 @@
+"use strict";(globalThis.webpackChunkdocs_site=globalThis.webpackChunkdocs_site||[]).push([[1903],{1912(o){o.exports=JSON.parse('{"blogBasePath":"/ContextCore/blog","blogTitle":"Blog","authorsListPath":"/ContextCore/blog/authors"}')}}]);
