@@ -103,7 +103,13 @@ public actor AgentContext {
     /// - Parameter url: Checkpoint file URL.
     /// - Returns: A restored context with persisted stores and session metadata.
     /// - Throws: `ContextCoreError.checkpointCorrupt` when data cannot be decoded or schema is unsupported.
-    public static func load(from url: URL) async throws -> AgentContext {
+    public static func load(from url: URL, maxBytes: Int = 100_000_000) async throws -> AgentContext {
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        if let fileSize = attributes[.size] as? Int, maxBytes > 0, fileSize > maxBytes {
+            Logger.contextCore.error("Checkpoint file exceeds size limit: \(fileSize, privacy: .public) > \(maxBytes, privacy: .public)")
+            throw ContextCoreError.checkpointCorrupt
+        }
+
         let data: Data
         do {
             data = try Data(contentsOf: url)
@@ -199,7 +205,7 @@ public actor AgentContext {
 
         try await episodicStore.insert(turn: enriched)
 
-        let maxRecentBuffer = max(configuration.recentTurnsGuaranteed * 2, configuration.recentTurnsGuaranteed)
+        let maxRecentBuffer = configuration.recentTurnsGuaranteed * 2
         sessionStore.appendRecent(enriched, maxBufferSize: maxRecentBuffer)
 
         let episodicCount = await episodicStore.count
@@ -353,34 +359,31 @@ public actor AgentContext {
 
     /// Soft-forgets a chunk by reducing its retention score.
     ///
+    /// Searches both episodic and semantic stores. A chunk may exist in either
+    /// or both stores, so `chunkNotFound` from one store is expected and
+    /// suppressed. Only throws if the chunk is absent from all stores.
+    ///
     /// - Parameter id: Chunk identifier to demote.
-    /// - Throws: `ContextCoreError.chunkNotFound` when the chunk does not exist.
+    /// - Throws: `ContextCoreError.chunkNotFound` when the chunk does not exist in any store.
     public func forget(id: UUID) async throws {
-        var found = false
+        var foundInEpisodic = false
+        var foundInSemantic = false
 
         do {
             try await episodicStore.updateRetentionScore(id: id, delta: -1.0)
-            found = true
-        } catch let error as ContextCoreError {
-            if case .chunkNotFound = error {
-                // Ignore and try semantic.
-            } else {
-                throw error
-            }
+            foundInEpisodic = true
+        } catch let error as ContextCoreError where error == .chunkNotFound(id: id) {
+            // Expected when chunk only exists in semantic store.
         }
 
         do {
             try await semanticStore.updateRetentionScore(id: id, delta: -1.0)
-            found = true
-        } catch let error as ContextCoreError {
-            if case .chunkNotFound = error {
-                // Ignore.
-            } else {
-                throw error
-            }
+            foundInSemantic = true
+        } catch let error as ContextCoreError where error == .chunkNotFound(id: id) {
+            // Expected when chunk only exists in episodic store.
         }
 
-        if !found {
+        guard foundInEpisodic || foundInSemantic else {
             throw ContextCoreError.chunkNotFound(id: id)
         }
     }
@@ -407,7 +410,7 @@ public actor AgentContext {
         let deduped = deduplicate(chunks: combined)
 
         let scored = deduped.compactMap { chunk -> (MemoryChunk, Float)? in
-            guard chunk.retentionScore > 0.01 else {
+            guard chunk.retentionScore > configuration.minimumRetentionScore else {
                 return nil
             }
             let score = Self.cosineSimilarity(embedding, chunk.embedding)
@@ -634,6 +637,16 @@ public actor AgentContext {
     }
 
     private func embedText(_ text: String) async throws -> [Float] {
+        let maxLength = configuration.maxEmbeddingTextLength
+        if maxLength > 0, text.count > maxLength {
+            Logger.contextCore.warning("Text length \(text.count, privacy: .public) exceeds maxEmbeddingTextLength \(maxLength, privacy: .public), truncating")
+            let truncated = String(text.prefix(maxLength))
+            return try await embedTextUnchecked(truncated)
+        }
+        return try await embedTextUnchecked(text)
+    }
+
+    private func embedTextUnchecked(_ text: String) async throws -> [Float] {
         do {
             return try await embeddingProvider.embed(text)
         } catch let error as ContextCoreError {
@@ -694,26 +707,7 @@ public actor AgentContext {
         }
     }
 
-    private static func cosineSimilarity(_ lhs: [Float], _ rhs: [Float]) -> Float {
-        guard lhs.count == rhs.count, !lhs.isEmpty else {
-            return 0
-        }
-
-        var dot: Float = 0
-        var lhsNorm: Float = 0
-        var rhsNorm: Float = 0
-
-        for index in lhs.indices {
-            dot += lhs[index] * rhs[index]
-            lhsNorm += lhs[index] * lhs[index]
-            rhsNorm += rhs[index] * rhs[index]
-        }
-
-        let denominator = lhsNorm.squareRoot() * rhsNorm.squareRoot()
-        guard denominator > 0 else {
-            return 0
-        }
-
-        return dot / denominator
+    static func cosineSimilarity(_ lhs: [Float], _ rhs: [Float]) -> Float {
+        VectorMath.cosineSimilarity(lhs, rhs)
     }
 }

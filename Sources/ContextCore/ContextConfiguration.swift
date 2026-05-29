@@ -22,6 +22,12 @@ public struct ContextConfiguration: Sendable {
     public var relevanceWeight: Float
     /// Weight assigned to attention centrality scoring.
     public var centralityWeight: Float
+    /// Minimum retention score for chunks to be included in recall results.
+    public var minimumRetentionScore: Float
+    /// Maximum allowed checkpoint file size in bytes (0 = unlimited).
+    public var maxCheckpointBytes: Int
+    /// Maximum text length (in characters) accepted by the embedding provider.
+    public var maxEmbeddingTextLength: Int
     /// ANN search breadth parameter.
     public var efSearch: Int
     /// Embedding backend used for query and chunk vectors.
@@ -45,6 +51,9 @@ public struct ContextConfiguration: Sendable {
     ///   - similarityMergeThreshold: Duplicate merge threshold.
     ///   - relevanceWeight: Similarity weight.
     ///   - centralityWeight: Centrality weight.
+    ///   - minimumRetentionScore: Minimum retention score for recall filtering.
+    ///   - maxCheckpointBytes: Maximum checkpoint file size in bytes (0 = unlimited).
+    ///   - maxEmbeddingTextLength: Maximum text length for embedding (0 = unlimited).
     ///   - efSearch: ANN search breadth.
     ///   - embeddingProvider: Embedding backend.
     ///   - tokenCounter: Token counter backend.
@@ -61,6 +70,9 @@ public struct ContextConfiguration: Sendable {
         similarityMergeThreshold: Float,
         relevanceWeight: Float,
         centralityWeight: Float,
+        minimumRetentionScore: Float = 0.01,
+        maxCheckpointBytes: Int = 0,
+        maxEmbeddingTextLength: Int = 0,
         efSearch: Int,
         embeddingProvider: any EmbeddingProvider,
         tokenCounter: any TokenCounter,
@@ -77,6 +89,9 @@ public struct ContextConfiguration: Sendable {
         self.similarityMergeThreshold = similarityMergeThreshold
         self.relevanceWeight = relevanceWeight
         self.centralityWeight = centralityWeight
+        self.minimumRetentionScore = minimumRetentionScore
+        self.maxCheckpointBytes = maxCheckpointBytes
+        self.maxEmbeddingTextLength = maxEmbeddingTextLength
         self.efSearch = efSearch
         self.embeddingProvider = embeddingProvider
         self.tokenCounter = tokenCounter
@@ -97,6 +112,9 @@ public struct ContextConfiguration: Sendable {
             similarityMergeThreshold: 0.92,
             relevanceWeight: 0.7,
             centralityWeight: 0.4,
+            minimumRetentionScore: 0.01,
+            maxCheckpointBytes: 100_000_000,
+            maxEmbeddingTextLength: 100_000,
             efSearch: 64,
             embeddingProvider: CachingEmbeddingProvider(
                 base: CoreMLEmbeddingProvider(),

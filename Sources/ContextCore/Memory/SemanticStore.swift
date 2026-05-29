@@ -106,7 +106,7 @@ public actor SemanticStore: ConsolidationSemanticStore {
     public func upsert(fact: String, embedding: [Float]) async throws {
         try validateDimension(embedding)
 
-        if let existingID = bestMatchingChunkID(for: embedding, threshold: 0.9),
+        if let existingID = try await bestMatchingChunkID(for: embedding, threshold: 0.9),
            var existing = chunksByID[existingID]
         {
             existing.lastAccessedAt = .now
@@ -157,43 +157,28 @@ public actor SemanticStore: ConsolidationSemanticStore {
         }
     }
 
-    private func bestMatchingChunkID(for embedding: [Float], threshold: Float) -> String? {
-        var bestID: String?
-        var bestSimilarity: Float = -1
-
-        for (id, chunk) in chunksByID {
-            let similarity = cosineSimilarity(embedding, chunk.embedding)
-            if similarity > bestSimilarity {
-                bestSimilarity = similarity
-                bestID = id
-            }
-        }
-
-        guard let bestID, bestSimilarity > threshold else {
+    private func bestMatchingChunkID(for embedding: [Float], threshold: Float) async throws -> String? {
+        guard !chunksByID.isEmpty else {
             return nil
         }
-        return bestID
+
+        let results = try await index.search(query: embedding, k: 1)
+        guard let best = results.first, chunksByID[best.id] != nil else {
+            return nil
+        }
+
+        // ANN returns distance; verify with exact cosine similarity against threshold.
+        guard let chunk = chunksByID[best.id] else {
+            return nil
+        }
+        let similarity = cosineSimilarity(embedding, chunk.embedding)
+        guard similarity > threshold else {
+            return nil
+        }
+        return best.id
     }
 
     private func cosineSimilarity(_ lhs: [Float], _ rhs: [Float]) -> Float {
-        guard lhs.count == rhs.count else {
-            return -1
-        }
-
-        var dot: Float = 0
-        var lhsNorm: Float = 0
-        var rhsNorm: Float = 0
-
-        for index in lhs.indices {
-            dot += lhs[index] * rhs[index]
-            lhsNorm += lhs[index] * lhs[index]
-            rhsNorm += rhs[index] * rhs[index]
-        }
-
-        let denominator = (lhsNorm.squareRoot() * rhsNorm.squareRoot())
-        guard denominator > 0 else {
-            return -1
-        }
-        return dot / denominator
+        VectorMath.cosineSimilarity(lhs, rhs)
     }
 }
